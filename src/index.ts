@@ -487,6 +487,15 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
 // GO Transit departures endpoint
 app.get("/go-departures", async (req: Request, res: Response) => {
     try {
+        // Debug: check if API key is configured
+        const apiKey = process.env.GO_TRANSIT_API_KEY;
+        if (!apiKey) {
+            res.json({
+                frames: [{ text: "NO KEY", icon: "i555" }],
+            });
+            return;
+        }
+
         // Optional line filter (e.g., ?lines=ST,LW)
         const linesParam = req.query.lines as string | undefined;
         const lineFilter = linesParam
@@ -494,13 +503,24 @@ app.get("/go-departures", async (req: Request, res: Response) => {
             : undefined;
 
         const trips = await fetchGODepartures();
+
+        // Debug: if no trips returned
+        if (trips.length === 0) {
+            res.json({
+                frames: [{ text: "0 TRIPS", icon: "i555" }],
+            });
+            return;
+        }
+
         const laMetricData = transformGOToLaMetric(trips, lineFilter);
 
         res.json(laMetricData);
     } catch (error) {
         console.error("Error fetching GO departures:", error);
+        const errorMsg = error instanceof Error ? error.message : "Unknown";
+        // Show first 10 chars of error on LaMetric
         res.status(500).json({
-            frames: [{ text: "Error", icon: "i555" }],
+            frames: [{ text: errorMsg.slice(0, 12), icon: "i555" }],
         });
     }
 });
