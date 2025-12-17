@@ -182,21 +182,9 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 
     // Sort all routes by soonest departure time
     const sortedRoutes = allRoutes.sort((a, b) => a.minTime - b.minTime);
-    const totalRoutes = sortedRoutes.length;
 
     // Create frames for each route/headsign group
-    for (let i = 0; i < sortedRoutes.length; i++) {
-        const { routeName, headsign, times } = sortedRoutes[i];
-        const routeIndex = i + 1; // 1-indexed for display
-
-        // Goal data shows position in the departure list
-        const goalData = {
-            start: 0,
-            current: routeIndex,
-            end: totalRoutes,
-            unit: "",
-        };
-
+    for (const { routeName, headsign, times } of sortedRoutes) {
         // Sort times and take first 2
         times.sort((a, b) => a - b);
         const nextTimes = times.slice(0, 2);
@@ -207,30 +195,36 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
             frames.push({
                 text: headsign,
                 icon: ION_ICON,
-                goalData,
             });
         } else {
             // Frame 1: Route number with bus icon
             frames.push({
                 text: routeName,
                 icon: getRouteIcon(routeName),
-                goalData,
             });
 
             // Frame 2: Headsign (destination)
             frames.push({
                 text: headsign,
-                goalData,
             });
         }
 
         // Final frame: Next departure times
+        // Show 100% goal bar on time frame if departure is "Due" (within 1 minute)
+        const isDueSoon = nextTimes[0] <= 1;
+        const timeGoalData = isDueSoon ? {
+            start: 0,
+            current: 1,
+            end: 1,
+            unit: "",
+        } : undefined;
+
         const timeText = nextTimes
             .map((t) => (t <= 1 ? "Due" : `${t}m`))
             .join(", ");
         frames.push({
             text: timeText,
-            goalData,
+            goalData: timeGoalData,
         });
     }
 
@@ -475,20 +469,15 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         stouffville: "i71736",
     };
 
-    const totalTrips = topTrips.length;
+    // Zero-progress goal bar (visual indicator for platform frame)
+    const platformGoalData = {
+        start: 0,
+        current: 0,
+        end: 1,
+        unit: "",
+    };
 
-    for (let i = 0; i < topTrips.length; i++) {
-        const trip = topTrips[i];
-        const tripIndex = i + 1; // 1-indexed for display
-
-        // Goal data shows position in the departure list
-        const goalData = {
-            start: 0,
-            current: tripIndex,
-            end: totalTrips,
-            unit: "",
-        };
-
+    for (const trip of topTrips) {
         // Get icon for this line
         const serviceLower = trip.Service.toLowerCase();
         const icon = lineIcons[serviceLower];
@@ -502,7 +491,6 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         frames.push({
             text: destination,
             icon,
-            goalData,
         });
 
         // Frame 2: Departure time in 24h format (extract from string to avoid timezone issues)
@@ -512,17 +500,17 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         frames.push({
             text: `${hours}:${mins}`,
             icon,
-            goalData,
         });
 
         // Frame 3 (optional): Platform if assigned (skip if empty or "-")
+        // Show zero-progress goal bar as visual indicator that platform is assigned
         if (trip.Platform && trip.Platform.trim() !== "" && trip.Platform.trim() !== "-") {
             // Reformat "5 & 6" to "5/6"
             const platform = trip.Platform.replace(/ & /g, "/");
             frames.push({
                 text: `→ ${platform}`,
                 icon,
-                goalData,
+                goalData: platformGoalData,
             });
         }
     }
