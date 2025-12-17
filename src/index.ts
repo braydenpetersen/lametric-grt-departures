@@ -119,7 +119,7 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     const frames: LaMetricFrame[] = [];
 
     // Group departures by route + headsign, storing route name for icon lookup
-    const grouped = new Map<string, { routeName: string; times: number[] }>();
+    const grouped = new Map<string, { routeName: string; headsign: string; times: number[] }>();
 
     for (const stop of stops) {
         for (const arrival of stop.arrivals) {
@@ -130,10 +130,10 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 
             const routeName = arrival.route.shortName;
             const headsign = trimHeadsign(arrival.trip.headsign);
-            const key = `${routeName}→${headsign}`;
+            const key = `${routeName}|${headsign}`;
 
             if (!grouped.has(key)) {
-                grouped.set(key, { routeName, times: [] });
+                grouped.set(key, { routeName, headsign, times: [] });
             }
             grouped.get(key)!.times.push(minutes);
         }
@@ -141,7 +141,7 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 
     // Create frames for each route/headsign group (limit to 3 routes for display)
     let routeCount = 0;
-    for (const [routeHeadsign, { routeName, times }] of grouped) {
+    for (const [_key, { routeName, headsign, times }] of grouped) {
         if (routeCount >= 3) break;
         routeCount++;
 
@@ -149,13 +149,18 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
         times.sort((a, b) => a - b);
         const nextTimes = times.slice(0, 2);
 
-        // Frame 1: Route → Headsign with appropriate icon
+        // Frame 1: Route number with icon
         frames.push({
-            text: routeHeadsign,
+            text: routeName,
             icon: getRouteIcon(routeName),
         });
 
-        // Frame 2: Next departure times
+        // Frame 2: Headsign (destination)
+        frames.push({
+            text: headsign,
+        });
+
+        // Frame 3: Next departure times
         const timeText = nextTimes
             .map((t) => (t <= 0 ? "Now" : `${t}`))
             .join(", ");
