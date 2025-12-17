@@ -129,9 +129,20 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     // Group departures by route + headsign, storing route name for icon lookup
     const grouped = new Map<string, { routeName: string; headsign: string; times: number[] }>();
 
+    // Track the earliest future departure (even if beyond 2 hours) for "CLOSED" display
+    let nextDepartureTime: Date | null = null;
+
     for (const stop of stops) {
         for (const arrival of stop.arrivals) {
             const minutes = getMinutesUntil(arrival.departure);
+            const departureDate = new Date(arrival.departure);
+
+            // Track next departure for "CLOSED" message
+            if (minutes >= 0) {
+                if (!nextDepartureTime || departureDate < nextDepartureTime) {
+                    nextDepartureTime = departureDate;
+                }
+            }
 
             // Skip departures that have already passed or are more than 2 hours away
             if (minutes < 0 || minutes > 120) continue;
@@ -186,12 +197,20 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
         });
     }
 
-    // If no departures found, show a message
+    // If no departures found within 2 hours, show CLOSED with next departure time
     if (frames.length === 0) {
         frames.push({
-            text: "No departures",
-            icon: "i11999",
+            text: "CLOSED",
         });
+
+        // Show when the next departure is (if available)
+        if (nextDepartureTime) {
+            const hours = nextDepartureTime.getHours().toString().padStart(2, "0");
+            const mins = nextDepartureTime.getMinutes().toString().padStart(2, "0");
+            frames.push({
+                text: `→ ${hours}:${mins}`,
+            });
+        }
     }
 
     return { frames };
