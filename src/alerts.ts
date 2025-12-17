@@ -1,6 +1,7 @@
-import fs from "fs";
-import path from "path";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+
+const GRT_ALERTS_URL =
+    "https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts";
 
 export interface Alert {
     id: string;
@@ -10,65 +11,73 @@ export interface Alert {
     affectedStops: string[];
 }
 
-// Load and parse alerts from Alerts.pb file
-export function loadAlerts(): Alert[] {
-    const alertsPath = path.join(process.cwd(), "data", "Alerts.pb");
+// Fetch and parse alerts from GRT live API
+export async function fetchAlerts(): Promise<Alert[]> {
+    try {
+        const response = await fetch(GRT_ALERTS_URL);
 
-    // Check if file exists
-    if (!fs.existsSync(alertsPath)) {
-        return [];
-    }
+        if (!response.ok) {
+            console.error(`Failed to fetch alerts: ${response.status}`);
+            return [];
+        }
 
-    const buffer = fs.readFileSync(alertsPath);
-    const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
-        new Uint8Array(buffer)
-    );
+        const buffer = await response.arrayBuffer();
+        const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
+            new Uint8Array(buffer)
+        );
 
-    const alerts: Alert[] = [];
+        const alerts: Alert[] = [];
 
-    for (const entity of feed.entity) {
-        if (entity.alert) {
-            const alert = entity.alert;
+        for (const entity of feed.entity) {
+            if (entity.alert) {
+                const alert = entity.alert;
 
-            // Extract header text (first translation or empty)
-            const headerText =
-                alert.headerText?.translation?.[0]?.text || "Service Alert";
+                // Extract header text (first translation or empty)
+                const headerText =
+                    alert.headerText?.translation?.[0]?.text || "Service Alert";
 
-            // Extract description text (first translation or empty)
-            const descriptionText =
-                alert.descriptionText?.translation?.[0]?.text || "";
+                // Extract description text (first translation or empty)
+                const descriptionText =
+                    alert.descriptionText?.translation?.[0]?.text || "";
 
-            // Extract affected routes
-            const affectedRoutes: string[] = [];
-            const affectedStops: string[] = [];
+                // Extract affected routes
+                const affectedRoutes: string[] = [];
+                const affectedStops: string[] = [];
 
-            if (alert.informedEntity) {
-                for (const informed of alert.informedEntity) {
-                    if (informed.routeId) {
-                        affectedRoutes.push(informed.routeId);
-                    }
-                    if (informed.stopId) {
-                        affectedStops.push(informed.stopId);
+                if (alert.informedEntity) {
+                    for (const informed of alert.informedEntity) {
+                        if (informed.routeId) {
+                            affectedRoutes.push(informed.routeId);
+                        }
+                        if (informed.stopId) {
+                            affectedStops.push(informed.stopId);
+                        }
                     }
                 }
+
+                alerts.push({
+                    id: entity.id || "",
+                    headerText,
+                    descriptionText,
+                    affectedRoutes: [...new Set(affectedRoutes)],
+                    affectedStops: [...new Set(affectedStops)],
+                });
             }
-
-            alerts.push({
-                id: entity.id || "",
-                headerText,
-                descriptionText,
-                affectedRoutes: [...new Set(affectedRoutes)],
-                affectedStops: [...new Set(affectedStops)],
-            });
         }
-    }
 
-    return alerts;
+        return alerts;
+    } catch (error) {
+        console.error("Error fetching alerts:", error);
+        return [];
+    }
 }
 
 // Check if there are any active alerts for a stop and its routes
-export function getActiveAlerts(stopId?: string, routeIds?: string[]): Alert[] {
-    const alerts = loadAlerts();
+export async function getActiveAlerts(
+    stopId?: string,
+    routeIds?: string[]
+): Promise<Alert[]> {
+    const alerts = await fetchAlerts();
 
     if (!stopId && (!routeIds || routeIds.length === 0)) {
         return alerts;
@@ -111,7 +120,7 @@ export function formatAlertsForLaMetric(
 
         frames.push({
             text: shortDesc || alert.headerText,
-            icon: "i555", // Warning/alert icon
+            icon: "i16701", // Animated warning icon
         });
     }
 
