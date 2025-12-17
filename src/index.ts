@@ -220,13 +220,13 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 // Main endpoint for LaMetric
 app.get("/departures", async (req: Request, res: Response) => {
     try {
-        // Accept stop ID as query parameter (single stop for LaMetric)
+        // Accept stop ID(s) as query parameter - supports comma-delimited values
         const stopId = req.query.stop as string;
         // Also support legacy 'stops' param for backwards compatibility
         const stopIdsParam = req.query.stops as string;
 
         const stopIds = stopId
-            ? [stopId]
+            ? stopId.split(",").map((id) => id.trim())
             : stopIdsParam
                 ? stopIdsParam.split(",").map((id) => id.trim())
                 : null;
