@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
 import express, { Request, Response } from "express";
 import { getStopsForLaMetric } from "./stops";
 import { getActiveAlerts, formatAlertsForLaMetric, loadAlertsFromFile } from "./alerts";
@@ -326,6 +328,177 @@ app.get("/test-alerts", (_req: Request, res: Response) => {
         }
     } catch (error) {
         console.error("Error loading test alerts:", error);
+        res.status(500).json({
+            frames: [{ text: "Error", icon: "i555" }],
+        });
+    }
+});
+
+// ============================================
+// GO Transit Union Station Departures
+// ============================================
+
+interface GOTrip {
+    Info: string;
+    TripNumber: string;
+    Platform: string;
+    Service: string;
+    ServiceType: string;
+    Time: string;
+    Stops: { Name: string; Code: string }[];
+}
+
+interface GOResponse {
+    Metadata: {
+        TimeStamp: string;
+        ErrorCode: string;
+        ErrorMessage: string;
+    };
+    AllDepartures: {
+        Trip: GOTrip[];
+    };
+}
+
+const GO_TRANSIT_API_URL = "https://api.openmetrolinx.com/OpenDataAPI/api/V1/ServiceUpdate/UnionDepartures/All";
+
+// Fetch departures from GO Transit API
+async function fetchGODepartures(): Promise<GOTrip[]> {
+    const apiKey = process.env.GO_TRANSIT_API_KEY;
+    if (!apiKey) {
+        throw new Error("GO_TRANSIT_API_KEY not configured");
+    }
+
+    const response = await fetch(`${GO_TRANSIT_API_URL}?key=${apiKey}`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(`GO Transit API error: ${response.status}`);
+    }
+
+    const data = (await response.json()) as GOResponse;
+    return data.AllDepartures?.Trip || [];
+}
+
+// Transform GO Transit data to LaMetric format
+function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetricResponse {
+    const frames: LaMetricFrame[] = [];
+
+    // Filter to trains only (ServiceType is "T" for trains, "B" for buses)
+    // Also filter out departures more than 3 hours away
+    const now = new Date();
+    const threeHoursMs = 3 * 60 * 60 * 1000;
+    let trainTrips = trips.filter((trip) => {
+        if (trip.ServiceType !== "T") return false;
+        const departureTime = new Date(trip.Time);
+        const diffMs = departureTime.getTime() - now.getTime();
+        return diffMs >= 0 && diffMs <= threeHoursMs;
+    });
+
+    // Filter by specific lines if provided
+    if (lineFilter && lineFilter.length > 0) {
+        trainTrips = trainTrips.filter((trip) => {
+            // Match against Service field (e.g., "Stouffville" matches "ST")
+            const serviceLower = trip.Service.toLowerCase();
+            return lineFilter.some((line) => {
+                const lineLower = line.toLowerCase();
+                // Common line codes: LW, LE, ST, RH, BA, MI, KI, UP
+                const lineMap: Record<string, string[]> = {
+                    lw: ["lakeshore west"],
+                    le: ["lakeshore east"],
+                    st: ["stouffville"],
+                    rh: ["richmond hill"],
+                    ba: ["barrie"],
+                    mi: ["milton"],
+                    ki: ["kitchener"],
+                    up: ["up express", "union pearson"],
+                };
+                const matchTerms = lineMap[lineLower] || [lineLower];
+                return matchTerms.some((term) => serviceLower.includes(term));
+            });
+        });
+    }
+
+    // Sort by departure time, then take top 10
+    const sortedTrips = trainTrips.sort((a, b) =>
+        new Date(a.Time).getTime() - new Date(b.Time).getTime()
+    );
+    const topTrips = sortedTrips.slice(0, 10);
+
+    // GO Transit line icons
+    const lineIcons: Record<string, string> = {
+        milton: "i71730",
+        "lakeshore west": "i71731",
+        "lakeshore east": "i71732",
+        kitchener: "i71733",
+        "richmond hill": "i71734",
+        barrie: "i71735",
+        stouffville: "i71736",
+    };
+
+    for (const trip of topTrips) {
+        // Get icon for this line
+        const serviceLower = trip.Service.toLowerCase();
+        const icon = lineIcons[serviceLower];
+
+        // Get destination (last stop)
+        const destination = trip.Stops?.length > 0
+            ? trip.Stops[trip.Stops.length - 1].Name
+            : trip.Service;
+
+        // Frame 1: Headsign/destination
+        frames.push({
+            text: destination,
+            icon,
+        });
+
+        // Frame 2: Departure time in 24h format
+        const departureTime = new Date(trip.Time);
+        const hours = departureTime.getHours().toString().padStart(2, "0");
+        const mins = departureTime.getMinutes().toString().padStart(2, "0");
+        frames.push({
+            text: `${hours}:${mins}`,
+            icon,
+        });
+
+        // Frame 3 (optional): Platform if assigned (skip if empty or "-")
+        if (trip.Platform && trip.Platform.trim() !== "" && trip.Platform.trim() !== "-") {
+            frames.push({
+                text: `→ ${trip.Platform}`,
+                icon,
+            });
+        }
+    }
+
+    // If no departures found, show X icon
+    if (frames.length === 0) {
+        frames.push({
+            text: "NO SVC",
+            icon: "i270",
+        });
+    }
+
+    return { frames };
+}
+
+// GO Transit departures endpoint
+app.get("/go-departures", async (req: Request, res: Response) => {
+    try {
+        // Optional line filter (e.g., ?lines=ST,LW)
+        const linesParam = req.query.lines as string | undefined;
+        const lineFilter = linesParam
+            ? linesParam.split(",").map((l) => l.trim())
+            : undefined;
+
+        const trips = await fetchGODepartures();
+        const laMetricData = transformGOToLaMetric(trips, lineFilter);
+
+        res.json(laMetricData);
+    } catch (error) {
+        console.error("Error fetching GO departures:", error);
         res.status(500).json({
             frames: [{ text: "Error", icon: "i555" }],
         });
