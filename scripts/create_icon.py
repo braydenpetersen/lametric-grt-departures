@@ -76,7 +76,7 @@ def create_panning_gif(
         save_all=True,
         append_images=frames[1:],
         duration=durations,
-        loop=2  # Loop twice then stop
+        loop=0  # Loop infinitely while frame is displayed
     )
     
     print(f"Saved animated GIF to: {output_path}")
