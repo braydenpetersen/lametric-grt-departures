@@ -35,6 +35,12 @@ interface GRTResponse {
 interface LaMetricFrame {
     text: string;
     icon?: string;
+    goalData?: {
+        start: number;
+        current: number;
+        end: number;
+        unit: string;
+    };
 }
 
 interface LaMetricResponse {
@@ -176,9 +182,20 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 
     // Sort all routes by soonest departure time
     const sortedRoutes = allRoutes.sort((a, b) => a.minTime - b.minTime);
+    const totalRoutes = sortedRoutes.length;
 
     // Create frames for each route/headsign group
-    for (const { routeName, headsign, times } of sortedRoutes) {
+    for (let i = 0; i < sortedRoutes.length; i++) {
+        const { routeName, headsign, times } = sortedRoutes[i];
+        const routeIndex = i + 1; // 1-indexed for display
+
+        // Goal data shows position in the departure list
+        const goalData = {
+            start: 0,
+            current: routeIndex,
+            end: totalRoutes,
+            unit: "",
+        };
 
         // Sort times and take first 2
         times.sort((a, b) => a - b);
@@ -190,17 +207,20 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
             frames.push({
                 text: headsign,
                 icon: ION_ICON,
+                goalData,
             });
         } else {
             // Frame 1: Route number with bus icon
             frames.push({
                 text: routeName,
                 icon: getRouteIcon(routeName),
+                goalData,
             });
 
             // Frame 2: Headsign (destination)
             frames.push({
                 text: headsign,
+                goalData,
             });
         }
 
@@ -210,6 +230,7 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
             .join(", ");
         frames.push({
             text: timeText,
+            goalData,
         });
     }
 
@@ -454,7 +475,20 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         stouffville: "i71736",
     };
 
-    for (const trip of topTrips) {
+    const totalTrips = topTrips.length;
+
+    for (let i = 0; i < topTrips.length; i++) {
+        const trip = topTrips[i];
+        const tripIndex = i + 1; // 1-indexed for display
+
+        // Goal data shows position in the departure list
+        const goalData = {
+            start: 0,
+            current: tripIndex,
+            end: totalTrips,
+            unit: "",
+        };
+
         // Get icon for this line
         const serviceLower = trip.Service.toLowerCase();
         const icon = lineIcons[serviceLower];
@@ -468,6 +502,7 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         frames.push({
             text: destination,
             icon,
+            goalData,
         });
 
         // Frame 2: Departure time in 24h format (extract from string to avoid timezone issues)
@@ -477,6 +512,7 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         frames.push({
             text: `${hours}:${mins}`,
             icon,
+            goalData,
         });
 
         // Frame 3 (optional): Platform if assigned (skip if empty or "-")
@@ -486,6 +522,7 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
             frames.push({
                 text: `→ ${platform}`,
                 icon,
+                goalData,
             });
         }
     }
