@@ -126,13 +126,16 @@ function getRouteIcon(routeShortName: string): string {
 function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     const frames: LaMetricFrame[] = [];
 
-    // Group departures by route + headsign, storing route name for icon lookup
-    const grouped = new Map<string, { routeName: string; headsign: string; times: number[] }>();
-
     // Track the earliest future departure (even if beyond 2 hours) for "CLOSED" display
     let nextDepartureTime: Date | null = null;
 
+    // Process each stop separately to get its top 3 routes
+    const allRoutes: { routeName: string; headsign: string; times: number[]; minTime: number }[] = [];
+
     for (const stop of stops) {
+        // Group departures by route + headsign for THIS stop
+        const stopGrouped = new Map<string, { routeName: string; headsign: string; times: number[] }>();
+
         for (const arrival of stop.arrivals) {
             const minutes = getMinutesUntil(arrival.departure);
             const departureDate = new Date(arrival.departure);
@@ -151,18 +154,29 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
             const headsign = trimHeadsign(arrival.trip.headsign);
             const key = `${routeName}|${headsign}`;
 
-            if (!grouped.has(key)) {
-                grouped.set(key, { routeName, headsign, times: [] });
+            if (!stopGrouped.has(key)) {
+                stopGrouped.set(key, { routeName, headsign, times: [] });
             }
-            grouped.get(key)!.times.push(minutes);
+            stopGrouped.get(key)!.times.push(minutes);
         }
+
+        // Get top 3 routes for this stop
+        const stopRoutes = [...stopGrouped.values()]
+            .map((route) => ({
+                ...route,
+                minTime: Math.min(...route.times),
+            }))
+            .sort((a, b) => a.minTime - b.minTime)
+            .slice(0, 3);
+
+        allRoutes.push(...stopRoutes);
     }
 
-    // Create frames for each route/headsign group (limit to 3 routes for display)
-    let routeCount = 0;
-    for (const [_key, { routeName, headsign, times }] of grouped) {
-        if (routeCount >= 3) break;
-        routeCount++;
+    // Sort all routes by soonest departure time
+    const sortedRoutes = allRoutes.sort((a, b) => a.minTime - b.minTime);
+
+    // Create frames for each route/headsign group
+    for (const { routeName, headsign, times } of sortedRoutes) {
 
         // Sort times and take first 2
         times.sort((a, b) => a - b);
