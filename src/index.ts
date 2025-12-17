@@ -426,11 +426,22 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
         });
     }
 
-    // Sort by departure time, then take top 10
+    // Sort by departure time
     const sortedTrips = trainTrips.sort((a, b) =>
         new Date(a.Time).getTime() - new Date(b.Time).getTime()
     );
-    const topTrips = sortedTrips.slice(0, 10);
+
+    // Take only one departure per line (first/soonest departure for each line)
+    const seenLines = new Set<string>();
+    const uniqueLineTrips = sortedTrips.filter((trip) => {
+        const line = trip.Service.toLowerCase();
+        if (seenLines.has(line)) return false;
+        seenLines.add(line);
+        return true;
+    });
+
+    // Take top 10 unique lines
+    const topTrips = uniqueLineTrips.slice(0, 10);
 
     // GO Transit line icons
     const lineIcons: Record<string, string> = {
