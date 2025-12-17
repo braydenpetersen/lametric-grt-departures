@@ -105,11 +105,18 @@ function trimHeadsign(headsign: string): string {
         .trim();
 }
 
+// Custom animated ION icon (base64 encoded GIF)
+const ION_ICON = "data:image/gif;base64,R0lGODlhCAAIAIEAAAAAAACUzwC0/BX/ACH/C05FVFNDQVBFMi4wAwECAAAh+QQAMgAAACwAAAAACAAIAAAIKAABDBgAoGCAAAIJAjiIsKBBhAIEPCwYcSKAigsRBojIUONFiRkDBAQAIfkEAQUABQAsAAAAAAgACACBAJTPAAAAALT8Ff8ACCMABxQIUKAAgIICCR4syNDgwIMKBzqMSHHiwoUPCwiQuDBAQAAh+QQBBQAFACwAAAAACAAIAIEAlM8AAAAV/wAAtPwIIAALBChQAADBgQMNElxYUKDBhAIbQpwo8aFChxEhRgwIACH5BAEFAAQALAAAAAAIAAgAgQCUzwAAAAC0/AAAAAgjAAMQIABgYAAAAgsOXEiQwEGHDRNCLCixIkWGDwMIkAhRQEAAIfkEAQUABAAsAAAAAAgACACBAJTPAAAAALT8AAAACCcACRAAIDAAAAEDBSoUSNAggQACGiaEKLFhxIcSEWJ8qJHgQwIIAwIAIfkEAQUABAAsAAAAAAgACACBAJTPAAAAALT8AAAACCgACQAgQCAAAAECCSokIGCgwYIICyYMEDHAxIoOGRJ8SLHgQIkIAwQEACH5BAEFAAQALAAAAAAIAAgAgQAAAACUzwC0/AAAAAgoAAMQIAAggACCAxMSEACAoEAABwE0fBhxIsGKDxcSLHgR4cCGEQkEBAAh+QQBBQAEACwAAAAABwAIAIEAAAAAlM8AtPwAAAAIIwAJEAAQQMBAgQgFACA40CAAAgEaHowIwCFFAhYlPjzokEBAACH5BAEFAAQALAAAAAAGAAgAgQAAAAC0/ACUzwAAAAgeAAkAEBBAIIGDBAIMFFhwIYCGAhgaBJBwYkODFwMCACH5BAEFAAQALAAAAAAIAAgAgQAAAAC0/ACUzwAAAAgiAAEICEAAAIGDCAMYJEAQQEOEBR8yjFgQoUGJCiUmrIgwIAAh+QQBBQAEACwAAAAABwAIAIEAAAAAtPwAlM8AAAAIIAAFBCAAgIBBgwEKEkg4UCHBhggBQDw4McBEhAQPEggIACH5BAEFAAQALAAAAAAIAAgAgQAAAAC0/ACUzwAAAAghAAMQAECgoMEABAkIVDjQoEKBCRdCdBhgIsOCCR021BgQACH5BAEFAAIALAAAAAAIAAgAgQAAAAC0/AAAAAAAAAghAAUAEECwYICBAgIQHIiQ4EGBDhdCNMgwosCGBSdmFBAQACH5BAEFAAIALAAAAAAIAAYAgQAAAAC0/AAAAAAAAAgeAAEIGEhQgEABAQYCCHBwIEOGDhVCJPjwYEKDAQICACH5BAEFAAIALAIAAQAGAAUAgQAAAAC0/AAAAAAAAAgUAAMIEABA4MAABQsOTHgwoUGFAQEAIfkEAQUAAgAsAQABAAcABQCBAAAAALT8AAAAAAAACBYAAwgQAEDgQAEBChY0qNBgwocMDQYEACH5BAEFAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgWAAMIEABAIMGBAQoqNLgQAMKGDBkGBAAh+QQBBQACACwBAAEABwAFAIEAAAAAtPwAAAAAAAAIFwAFAAggQKCAAAMTElQI4CDDggMhBggIACH5BAEFAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgbAAUACCBAoIAAAQYqJCgwYcKDDhUebFhwoICAACH5BAEFAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgbAAEEECAAgIAAAAQqHJgQIcKDDRVCFEiQooCAACH5BAEyAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgZAAMIEABAQICCBxMSNAjgIEOGDiMObDgxIAA7";
+
+// Check if route is ION (light rail)
+function isIONRoute(routeShortName: string): boolean {
+    return routeShortName === "301" || routeShortName === "302";
+}
+
 // Get icon based on route type (ION tram vs bus)
 function getRouteIcon(routeShortName: string): string {
-    // ION Light Rail routes use animated tram icon
-    if (routeShortName === "301" || routeShortName === "302") {
-        return "a44539"; // Animated tram icon
+    if (isIONRoute(routeShortName)) {
+        return ION_ICON; // Custom animated ION icon
     }
     return "i11999"; // Bus icon (static)
 }
@@ -149,18 +156,27 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
         times.sort((a, b) => a - b);
         const nextTimes = times.slice(0, 2);
 
-        // Frame 1: Route number with icon
-        frames.push({
-            text: routeName,
-            icon: getRouteIcon(routeName),
-        });
+        // ION gets special treatment: icon + headsign in one frame
+        if (isIONRoute(routeName)) {
+            // Frame 1: Headsign with ION icon
+            frames.push({
+                text: headsign,
+                icon: ION_ICON,
+            });
+        } else {
+            // Frame 1: Route number with bus icon
+            frames.push({
+                text: routeName,
+                icon: getRouteIcon(routeName),
+            });
 
-        // Frame 2: Headsign (destination)
-        frames.push({
-            text: headsign,
-        });
+            // Frame 2: Headsign (destination)
+            frames.push({
+                text: headsign,
+            });
+        }
 
-        // Frame 3: Next departure times
+        // Final frame: Next departure times
         const timeText = nextTimes
             .map((t) => (t <= 1 ? "Due" : `${t}m`))
             .join(", ");
