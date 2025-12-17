@@ -107,11 +107,11 @@ function trimHeadsign(headsign: string): string {
 
 // Get icon based on route type (ION tram vs bus)
 function getRouteIcon(routeShortName: string): string {
-    // ION Light Rail routes use tram icon
+    // ION Light Rail routes use animated tram icon
     if (routeShortName === "301" || routeShortName === "302") {
-        return "i44539"; // Tram icon
+        return "a44539"; // Animated tram icon
     }
-    return "i11999"; // Bus icon
+    return "i11999"; // Bus icon (static)
 }
 
 // Transform GRT data to LaMetric format

@@ -120,7 +120,7 @@ export function formatAlertsForLaMetric(
 
         frames.push({
             text: shortDesc || alert.headerText,
-            icon: "i16701", // Animated warning icon
+            icon: "a16701", // Animated warning icon
         });
     }
 
