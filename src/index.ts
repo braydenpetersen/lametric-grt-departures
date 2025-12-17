@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import { getStopsForLaMetric } from "./stops";
-import { getActiveAlerts, formatAlertsForLaMetric } from "./alerts";
+import { getActiveAlerts, formatAlertsForLaMetric, loadAlertsFromFile } from "./alerts";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -254,6 +254,27 @@ app.get("/alerts", async (req: Request, res: Response) => {
         }
     } catch (error) {
         console.error("Error loading alerts:", error);
+        res.status(500).json({
+            frames: [{ text: "Error", icon: "i555" }],
+        });
+    }
+});
+
+// Test endpoint - loads alerts from static file
+app.get("/test-alerts", (_req: Request, res: Response) => {
+    try {
+        const alerts = loadAlertsFromFile();
+        const frames = formatAlertsForLaMetric(alerts);
+
+        if (frames.length === 0) {
+            res.json({
+                frames: [{ text: "No test alerts", icon: "i7473" }],
+            });
+        } else {
+            res.json({ frames, raw: alerts });
+        }
+    } catch (error) {
+        console.error("Error loading test alerts:", error);
         res.status(500).json({
             frames: [{ text: "Error", icon: "i555" }],
         });

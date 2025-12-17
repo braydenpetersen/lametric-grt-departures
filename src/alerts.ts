@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 
 const GRT_ALERTS_URL =
@@ -72,6 +74,57 @@ export async function fetchAlerts(): Promise<Alert[]> {
     }
 }
 
+// Load alerts from static file (for testing)
+export function loadAlertsFromFile(): Alert[] {
+    try {
+        const alertsPath = path.join(process.cwd(), "data", "Alerts.pb");
+
+        if (!fs.existsSync(alertsPath)) {
+            return [];
+        }
+
+        const buffer = fs.readFileSync(alertsPath);
+        const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
+            new Uint8Array(buffer)
+        );
+
+        const alerts: Alert[] = [];
+
+        for (const entity of feed.entity) {
+            if (entity.alert) {
+                const alert = entity.alert;
+                const headerText =
+                    alert.headerText?.translation?.[0]?.text || "Service Alert";
+                const descriptionText =
+                    alert.descriptionText?.translation?.[0]?.text || "";
+
+                const affectedRoutes: string[] = [];
+                const affectedStops: string[] = [];
+
+                if (alert.informedEntity) {
+                    for (const informed of alert.informedEntity) {
+                        if (informed.routeId) affectedRoutes.push(informed.routeId);
+                        if (informed.stopId) affectedStops.push(informed.stopId);
+                    }
+                }
+
+                alerts.push({
+                    id: entity.id || "",
+                    headerText,
+                    descriptionText,
+                    affectedRoutes: [...new Set(affectedRoutes)],
+                    affectedStops: [...new Set(affectedStops)],
+                });
+            }
+        }
+
+        return alerts;
+    } catch (error) {
+        console.error("Error loading alerts from file:", error);
+        return [];
+    }
+}
+
 // Check if there are any active alerts for a stop and its routes
 export async function getActiveAlerts(
     stopId?: string,
@@ -107,19 +160,34 @@ export function formatAlertsForLaMetric(
 
     for (const alert of alerts) {
         // Clean up HTML from description
-        const cleanDescription = alert.descriptionText
+        let cleanDescription = alert.descriptionText
             .replace(/<[^>]*>/g, " ")
             .replace(/\s+/g, " ")
             .trim();
 
-        // Truncate if too long
+        // Remove repeated phrases at the start (e.g., "stop closure Stop closure" -> "Stop closure")
+        // Match pattern where first few words are repeated
+        const words = cleanDescription.split(" ");
+        for (let len = 1; len <= 3 && len * 2 <= words.length; len++) {
+            const first = words.slice(0, len).join(" ").toLowerCase();
+            const second = words.slice(len, len * 2).join(" ").toLowerCase();
+            if (first === second) {
+                cleanDescription = words.slice(len).join(" ");
+                break;
+            }
+        }
+
+        // Use description if available, otherwise header
+        const displayText = cleanDescription || alert.headerText;
+
+        // Truncate if too long (100 chars max)
         const shortDesc =
-            cleanDescription.length > 50
-                ? cleanDescription.substring(0, 47) + "..."
-                : cleanDescription;
+            displayText.length > 100
+                ? displayText.substring(0, 97) + "..."
+                : displayText;
 
         frames.push({
-            text: shortDesc || alert.headerText,
+            text: shortDesc,
             icon: "a16701", // Animated warning icon
         });
     }
