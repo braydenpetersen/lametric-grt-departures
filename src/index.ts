@@ -389,11 +389,15 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
 
     // Filter to trains only (ServiceType is "T" for trains, "B" for buses)
     // Also filter out departures more than 3 hours away
+    // Note: GO Transit API returns times in Eastern time without timezone info
     const now = new Date();
     const threeHoursMs = 3 * 60 * 60 * 1000;
     let trainTrips = trips.filter((trip) => {
         if (trip.ServiceType !== "T") return false;
-        const departureTime = new Date(trip.Time);
+        // Parse time as Eastern time (append timezone offset)
+        // GO Transit times are in format "2025-12-17 14:34:00"
+        const timeStr = trip.Time.replace(" ", "T") + "-05:00"; // EST offset
+        const departureTime = new Date(timeStr);
         const diffMs = departureTime.getTime() - now.getTime();
         return diffMs >= 0 && diffMs <= threeHoursMs;
     });
@@ -455,10 +459,10 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
             icon,
         });
 
-        // Frame 2: Departure time in 24h format
-        const departureTime = new Date(trip.Time);
-        const hours = departureTime.getHours().toString().padStart(2, "0");
-        const mins = departureTime.getMinutes().toString().padStart(2, "0");
+        // Frame 2: Departure time in 24h format (extract from string to avoid timezone issues)
+        // Time format is "2025-12-17 14:34:00" - extract HH:MM
+        const timePart = trip.Time.split(" ")[1] || "";
+        const [hours, mins] = timePart.split(":");
         frames.push({
             text: `${hours}:${mins}`,
             icon,
