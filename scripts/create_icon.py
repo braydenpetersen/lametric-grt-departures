@@ -40,8 +40,8 @@ def create_panning_gif(
         sys.exit(1)
     
     # Create frames by sliding an 8x8 window across the image
-    frames = []
-    durations = []
+    single_pass_frames = []
+    single_pass_durations = []
     
     # Pan from left to right
     for i, x in enumerate(range(width - 7)):  # Stop when window reaches the right edge
@@ -53,21 +53,26 @@ def create_panning_gif(
         frame_rgb.paste(frame, (0, 0), frame)
         frame_p = frame_rgb.convert("P", palette=Image.ADAPTIVE)
         
-        frames.append(frame_p)
+        single_pass_frames.append(frame_p)
         
         # Set duration - hold longer on first and last frames
         if i == 0:
-            durations.append(hold_start)
+            single_pass_durations.append(hold_start)
         elif x == width - 8:  # Last frame
-            durations.append(hold_end)
+            single_pass_durations.append(hold_end)
         else:
-            durations.append(frame_duration)
+            single_pass_durations.append(frame_duration)
     
-    if not frames:
+    if not single_pass_frames:
         print("Error: No frames generated")
         sys.exit(1)
     
-    print(f"Created {len(frames)} frames from {width}x{height} image")
+    # Repeat the animation multiple times
+    repeat_count = 3  # Play the animation 3 times
+    frames = single_pass_frames * repeat_count
+    durations = single_pass_durations * repeat_count
+    
+    print(f"Created {len(single_pass_frames)} frames x {repeat_count} repeats = {len(frames)} total frames")
     print(f"Hold at start: {hold_start}ms, Hold at end: {hold_end}ms, Frame duration: {frame_duration}ms")
     
     # Save as animated GIF
