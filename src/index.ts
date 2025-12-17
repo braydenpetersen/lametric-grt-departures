@@ -125,8 +125,8 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
         for (const arrival of stop.arrivals) {
             const minutes = getMinutesUntil(arrival.departure);
 
-            // Skip departures that have already passed
-            if (minutes < 0) continue;
+            // Skip departures that have already passed or are more than 2 hours away
+            if (minutes < 0 || minutes > 120) continue;
 
             const routeName = arrival.route.shortName;
             const headsign = trimHeadsign(arrival.trip.headsign);
@@ -162,10 +162,10 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 
         // Frame 3: Next departure times
         const timeText = nextTimes
-            .map((t) => (t <= 0 ? "Now" : `${t}`))
+            .map((t) => (t <= 1 ? "Due" : `${t}m`))
             .join(", ");
         frames.push({
-            text: `${timeText}m`,
+            text: timeText,
         });
     }
 
