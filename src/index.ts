@@ -470,8 +470,10 @@ function transformGOToLaMetric(trips: GOTrip[], lineFilter?: string[]): LaMetric
 
         // Frame 3 (optional): Platform if assigned (skip if empty or "-")
         if (trip.Platform && trip.Platform.trim() !== "" && trip.Platform.trim() !== "-") {
+            // Reformat "5 & 6" to "5/6"
+            const platform = trip.Platform.replace(/ & /g, "/");
             frames.push({
-                text: `→ ${trip.Platform}`,
+                text: `→ ${platform}`,
                 icon,
             });
         }
