@@ -200,7 +200,7 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     // If no departures found within 2 hours, show CLOSED with next departure time
     if (frames.length === 0) {
         frames.push({
-            text: "NO SVC",
+            text: "CLOSED",
             icon: "i270",
         });
 
