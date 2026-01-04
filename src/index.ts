@@ -251,6 +251,22 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     return { frames };
 }
 
+// Root endpoint - API information
+app.get("/", (_req: Request, res: Response) => {
+    res.json({
+        name: "GRT & GO Transit LaMetric API",
+        version: "1.0.0",
+        endpoints: {
+            "/departures": "GRT departures - ?stop=STOP_ID",
+            "/stops": "List available GRT stops",
+            "/alerts": "GRT alerts - ?stop=STOP_ID (optional)",
+            "/go-departures": "GO Transit Union Station departures - ?lines=KI,LW (optional)",
+            "/go-stop": "GO Transit stop-specific departures - ?stop=STOP_CODE",
+            "/health": "Health check",
+        },
+    });
+});
+
 // Main endpoint for LaMetric
 app.get("/departures", async (req: Request, res: Response) => {
     try {
@@ -665,12 +681,12 @@ function transformGONextServiceToLaMetric(lines: GONextServiceLine[], lineFilter
         }
         
         // For trains: filter out departures more than 3 hours away or in the past
-        // For buses: allow up to 1 minute in the past (to show as "Due"), filter out more than 3 hours away
+        // For buses: allow up to 1 minute in the past (to show as "Due" for just-departed buses), filter out more than 3 hours away
         const oneMinuteMs = 60 * 1000;
         if (line.ServiceType === "T") {
             if (diffMs < 0 || diffMs > threeHoursMs) continue;
         } else {
-            // Buses: allow slightly in the past (up to 1 minute) to show as "Due"
+            // Buses: allow slightly in the past (up to 1 minute) to show as "Due" - for buses that just left
             if (diffMs < -oneMinuteMs || diffMs > threeHoursMs) continue;
         }
         
@@ -727,7 +743,7 @@ function transformGONextServiceToLaMetric(lines: GONextServiceLine[], lineFilter
             }
             
             // Skip if more than 2 hours away (matching GRT behavior)
-            // Allow buses up to 1 minute in the past to show as "Due"
+            // Allow buses up to 1 minute in the past to show as "Due" - for buses that just left
             if (minutes < -1 || minutes > 120) continue;
 
             // Get bus number with branch code (LineCode might be "30", DirectionCode might have "A")
@@ -889,7 +905,7 @@ function transformGONextServiceToLaMetric(lines: GONextServiceLine[], lineFilter
     return { frames };
 }
 
-// GO Transit stop-specific departures endpoint (supports both trains and buses)
+// GO Transit stop-specific departures endpoint (supports both trains and buses, multiple stops)
 app.get("/go-stop", async (req: Request, res: Response) => {
     try {
         // Check if API key is configured
@@ -901,14 +917,17 @@ app.get("/go-stop", async (req: Request, res: Response) => {
             return;
         }
 
-        // Get stop code from query parameter
-        const stopCode = req.query.stop as string | undefined;
-        if (!stopCode) {
-            res.status(400).json({
-                frames: [{ text: "Missing stop", icon: "i555" }],
+        // Get stop code(s) from query parameter - supports comma-delimited values
+        const stopParam = req.query.stop as string | undefined;
+        if (!stopParam) {
+            res.json({
+                frames: [{ text: "Please input a GO Transit Stop # in the app", icon: "i555" }],
             });
             return;
         }
+
+        // Parse multiple stop codes (comma-separated)
+        const stopCodes = stopParam.split(",").map((code) => code.trim()).filter((code) => code.length > 0);
 
         // Optional line filter (e.g., ?stop=BE&lines=KI,LW)
         const linesParam = req.query.lines as string | undefined;
@@ -916,17 +935,27 @@ app.get("/go-stop", async (req: Request, res: Response) => {
             ? linesParam.split(",").map((l) => l.trim())
             : undefined;
 
-        const lines = await fetchGOStopDepartures(stopCode);
+        // Fetch departures for all stop codes
+        const allLines: GONextServiceLine[] = [];
+        for (const stopCode of stopCodes) {
+            try {
+                const lines = await fetchGOStopDepartures(stopCode);
+                allLines.push(...lines);
+            } catch (error) {
+                console.error(`Error fetching departures for stop ${stopCode}:`, error);
+                // Continue with other stops even if one fails
+            }
+        }
 
-        // Debug: if no lines returned
-        if (lines.length === 0) {
+        // If no lines returned from any stop
+        if (allLines.length === 0) {
             res.json({
                 frames: [{ text: "NO SVC", icon: "i270" }],
             });
             return;
         }
 
-        const laMetricData = transformGONextServiceToLaMetric(lines, lineFilter);
+        const laMetricData = transformGONextServiceToLaMetric(allLines, lineFilter);
 
         res.json(laMetricData);
     } catch (error) {
