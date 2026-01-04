@@ -11,7 +11,7 @@ const GRT_GRAPHQL_URL = "https://grtivr-prod.regionofwaterloo.9802690.ca/vms/gra
 
 interface GRTArrival {
     trip: {
-        headsign: string;
+        headsign: string | null;
     };
     route: {
         shortName: string;
@@ -106,7 +106,10 @@ function extractRouteIds(stops: GRTStop[]): string[] {
 }
 
 // Trim headsigns - remove "Station" and extra spaces
-function trimHeadsign(headsign: string): string {
+function trimHeadsign(headsign: string | null): string {
+    if (!headsign) {
+        return "Unknown";
+    }
     return headsign
         .replace(/\s*Station\s*/gi, " ")
         .replace(/\s+/g, " ")
