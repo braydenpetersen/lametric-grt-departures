@@ -262,6 +262,7 @@ app.get("/", (_req: Request, res: Response) => {
             "/alerts": "GRT alerts - ?stop=STOP_ID (optional)",
             "/go-departures": "GO Transit Union Station departures - ?lines=KI,LW (optional)",
             "/go-stop": "GO Transit stop-specific departures - ?stop=STOP_CODE",
+            "/quick-view": "Quick view mode - ?quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
             "/health": "Health check",
         },
     });
@@ -964,6 +965,74 @@ app.get("/go-stop", async (req: Request, res: Response) => {
         // Show first 12 chars of error on LaMetric
         res.status(500).json({
             frames: [{ text: errorMsg.slice(0, 12), icon: "i555" }],
+        });
+    }
+});
+
+// ============================================
+// Quick View Mode - Single Frame Display
+// ============================================
+
+// Quick view endpoint for button interaction - shows a single favorite route/stop combo
+app.get("/quick-view", async (req: Request, res: Response) => {
+    try {
+        const stopId = req.query.quickViewStop as string | undefined;
+        const routeFilter = req.query.quickViewRoute as string | undefined;
+
+        if (!stopId || !routeFilter) {
+            res.json({
+                frames: [{ text: "Configure stop & route", icon: "i555" }],
+            });
+            return;
+        }
+
+        const stops = await fetchDepartures([stopId]);
+
+        // Find departures matching the specific route
+        let matchingDeparture: { minutes: number; route: string } | null = null;
+
+        for (const stop of stops) {
+            for (const arrival of stop.arrivals) {
+                const minutes = getMinutesUntil(arrival.departure);
+
+                // Skip departures that have passed or are more than 2 hours away
+                if (minutes < 0 || minutes > 120) continue;
+
+                // Check if this matches the requested route
+                if (arrival.route.shortName === routeFilter) {
+                    // Take the soonest matching departure
+                    if (!matchingDeparture || minutes < matchingDeparture.minutes) {
+                        matchingDeparture = {
+                            minutes,
+                            route: arrival.route.shortName,
+                        };
+                    }
+                }
+            }
+        }
+
+        // Format response as single frame: "[route] | [mins]M" or "[route] | Due"
+        if (matchingDeparture) {
+            const timeText = matchingDeparture.minutes <= 1 ? "Due" : `${matchingDeparture.minutes}M`;
+            res.json({
+                frames: [{
+                    text: `${matchingDeparture.route} | ${timeText}`,
+                    icon: "24030", // Tracking symbol icon
+                }],
+            });
+        } else {
+            // No matching departures found
+            res.json({
+                frames: [{
+                    text: `${routeFilter} | --`,
+                    icon: "24030",
+                }],
+            });
+        }
+    } catch (error) {
+        console.error("Error fetching quick view:", error);
+        res.status(500).json({
+            frames: [{ text: "Error", icon: "i555" }],
         });
     }
 });
