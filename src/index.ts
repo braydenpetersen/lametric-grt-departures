@@ -263,6 +263,7 @@ app.get("/", (_req: Request, res: Response) => {
             "/go-departures": "GO Transit Union Station departures - ?lines=KI,LW (optional)",
             "/go-stop": "GO Transit stop-specific departures - ?stop=STOP_CODE",
             "/quick-view": "Quick view mode - ?quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
+            "/quick-view/toggle": "Toggle tracking (POST) - ?deviceIp=IP&apiKey=KEY&quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
             "/health": "Health check",
         },
     });
@@ -972,6 +973,252 @@ app.get("/go-stop", async (req: Request, res: Response) => {
 // ============================================
 // Quick View Mode - Single Frame Display
 // ============================================
+
+// Tracking state for each device
+interface TrackingSession {
+    deviceIp: string;
+    apiKey: string;
+    stopId: string;
+    routeFilter: string;
+    lastMinutes: number | null;
+    alertedAt: number | null; // Timestamp when we sent the departure alert
+    intervalId: NodeJS.Timeout | null;
+}
+
+// Map of device IP to tracking session
+const activeTracking = new Map<string, TrackingSession>();
+
+// Send a notification to a LaMetric device
+async function sendLaMetricNotification(
+    deviceIp: string,
+    apiKey: string,
+    frames: LaMetricFrame[],
+    options?: {
+        priority?: "info" | "warning" | "critical";
+        sound?: { category: string; id: string; repeat?: number };
+        cycles?: number;
+    }
+): Promise<boolean> {
+    try {
+        const auth = Buffer.from(`dev:${apiKey}`).toString("base64");
+
+        const payload: Record<string, unknown> = {
+            model: { frames },
+        };
+
+        if (options?.priority) {
+            payload.priority = options.priority;
+        }
+        if (options?.sound) {
+            payload.model = { ...payload.model as object, sound: options.sound };
+        }
+        if (options?.cycles !== undefined) {
+            payload.model = { ...payload.model as object, cycles: options.cycles };
+        }
+
+        const response = await fetch(`http://${deviceIp}:8080/api/v2/device/notifications`, {
+            method: "POST",
+            headers: {
+                Authorization: `Basic ${auth}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        return response.ok;
+    } catch (error) {
+        console.error("Error sending LaMetric notification:", error);
+        return false;
+    }
+}
+
+// Get departure info for tracking
+async function getTrackingDeparture(stopId: string, routeFilter: string): Promise<{ minutes: number; route: string } | null> {
+    const stops = await fetchDepartures([stopId]);
+
+    let matchingDeparture: { minutes: number; route: string } | null = null;
+
+    for (const stop of stops) {
+        for (const arrival of stop.arrivals) {
+            const minutes = getMinutesUntil(arrival.departure);
+
+            if (minutes < 0 || minutes > 120) continue;
+
+            if (arrival.route.shortName === routeFilter) {
+                if (!matchingDeparture || minutes < matchingDeparture.minutes) {
+                    matchingDeparture = {
+                        minutes,
+                        route: arrival.route.shortName,
+                    };
+                }
+            }
+        }
+    }
+
+    return matchingDeparture;
+}
+
+// Update tracking for a device (called periodically)
+async function updateTracking(session: TrackingSession): Promise<void> {
+    try {
+        const departure = await getTrackingDeparture(session.stopId, session.routeFilter);
+
+        if (!departure) {
+            // No more departures - stop tracking
+            stopTracking(session.deviceIp);
+            await sendLaMetricNotification(
+                session.deviceIp,
+                session.apiKey,
+                [{ text: `${session.routeFilter} | --`, icon: "24030" }],
+                { priority: "info" }
+            );
+            return;
+        }
+
+        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}M`;
+
+        // Check if we need to send a departure alert (at 3 minutes or less)
+        if (departure.minutes <= 3 && !session.alertedAt) {
+            // Send alert notification with sound
+            await sendLaMetricNotification(
+                session.deviceIp,
+                session.apiKey,
+                [
+                    { text: `${departure.route} | ${timeText}`, icon: "24030" },
+                    { text: "Time to go!" },
+                ],
+                {
+                    priority: "warning",
+                    sound: { category: "notifications", id: "bicycle", repeat: 1 },
+                    cycles: 2,
+                }
+            );
+            session.alertedAt = Date.now();
+        } else if (departure.minutes !== session.lastMinutes) {
+            // Silent update (only when time changes)
+            await sendLaMetricNotification(
+                session.deviceIp,
+                session.apiKey,
+                [{ text: `${departure.route} | ${timeText}`, icon: "24030" }],
+                { priority: "info" }
+            );
+        }
+
+        session.lastMinutes = departure.minutes;
+
+        // Stop tracking after the bus is due
+        if (departure.minutes <= 0) {
+            stopTracking(session.deviceIp);
+        }
+    } catch (error) {
+        console.error("Error updating tracking:", error);
+    }
+}
+
+// Start tracking for a device
+function startTracking(
+    deviceIp: string,
+    apiKey: string,
+    stopId: string,
+    routeFilter: string
+): TrackingSession {
+    // Stop existing tracking if any
+    stopTracking(deviceIp);
+
+    const session: TrackingSession = {
+        deviceIp,
+        apiKey,
+        stopId,
+        routeFilter,
+        lastMinutes: null,
+        alertedAt: null,
+        intervalId: null,
+    };
+
+    // Update every 30 seconds
+    session.intervalId = setInterval(() => updateTracking(session), 30000);
+    activeTracking.set(deviceIp, session);
+
+    return session;
+}
+
+// Stop tracking for a device
+function stopTracking(deviceIp: string): void {
+    const session = activeTracking.get(deviceIp);
+    if (session?.intervalId) {
+        clearInterval(session.intervalId);
+    }
+    activeTracking.delete(deviceIp);
+}
+
+// Toggle tracking endpoint - called when button is pressed on LaMetric
+app.post("/quick-view/toggle", async (req: Request, res: Response) => {
+    try {
+        const deviceIp = req.query.deviceIp as string | undefined;
+        const apiKey = req.query.apiKey as string | undefined;
+        const stopId = req.query.quickViewStop as string | undefined;
+        const routeFilter = req.query.quickViewRoute as string | undefined;
+
+        if (!deviceIp || !apiKey || !stopId || !routeFilter) {
+            res.status(400).json({
+                error: "Missing required parameters: deviceIp, apiKey, quickViewStop, quickViewRoute",
+            });
+            return;
+        }
+
+        // Check if already tracking
+        if (activeTracking.has(deviceIp)) {
+            // Stop tracking
+            stopTracking(deviceIp);
+            await sendLaMetricNotification(
+                deviceIp,
+                apiKey,
+                [{ text: "Tracking off", icon: "24030" }],
+                { priority: "info" }
+            );
+            res.json({ tracking: false });
+            return;
+        }
+
+        // Start tracking
+        const departure = await getTrackingDeparture(stopId, routeFilter);
+
+        if (!departure) {
+            await sendLaMetricNotification(
+                deviceIp,
+                apiKey,
+                [{ text: `${routeFilter} | --`, icon: "24030" }],
+                { priority: "info" }
+            );
+            res.json({ tracking: false, message: "No departures found" });
+            return;
+        }
+
+        const session = startTracking(deviceIp, apiKey, stopId, routeFilter);
+        session.lastMinutes = departure.minutes;
+
+        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}M`;
+
+        // Send initial tracking notification with sound
+        await sendLaMetricNotification(
+            deviceIp,
+            apiKey,
+            [
+                { text: `${departure.route} | ${timeText}`, icon: "24030" },
+                { text: "Tracking" },
+            ],
+            {
+                priority: "info",
+                sound: { category: "notifications", id: "positive1", repeat: 1 },
+            }
+        );
+
+        res.json({ tracking: true, route: departure.route, minutes: departure.minutes });
+    } catch (error) {
+        console.error("Error toggling tracking:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
 
 // Quick view endpoint for button interaction - shows a single favorite route/stop combo
 app.get("/quick-view", async (req: Request, res: Response) => {
