@@ -1066,8 +1066,13 @@ async function sendLaMetricNotification(
     }
 }
 
+// GET handler so LaMetric's URL validator passes
+app.get("/quick-view/toggle", (_req: Request, res: Response) => {
+    res.json({ status: "ok" });
+});
+
 // Quick view toggle endpoint - webhook triggered by button press
-// Pushes notification to LaMetric device AND toggles departure tracking for App 2
+// Pushes notification to LaMetric device AND starts departure tracking for App 2
 app.post("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
         const stopId = req.query.quickViewStop as string | undefined;
