@@ -56,12 +56,11 @@ function getNextScheduledDeparture(stopIds: string[]): { route: string; time: st
         }
 
         if (earliest) {
-            // Format time as 5:54AM
+            // Format time as 5:54
             const [h, m] = earliest.time.split(":");
             const hour = parseInt(h);
-            const ampm = hour >= 12 ? "PM" : "AM";
             const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-            return { route: earliest.route, time: `${hour12}:${m}${ampm}` };
+            return { route: earliest.route, time: `${hour12}:${m}` };
         }
     }
 
@@ -233,7 +232,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         const next = getNextScheduledDeparture(stopIds);
         if (next) {
             frames.push({
-                text: `${next.route} | ${next.time} NEXT`,
+                text: `${next.route} ${next.time}`,
                 icon: getRouteIcon(next.route),
             });
         } else {

@@ -68,8 +68,14 @@ export async function fetchAlerts(): Promise<Alert[]> {
         }
 
         return alerts;
-    } catch (error) {
-        console.error("Error fetching alerts:", error);
+    } catch (error: any) {
+        // Region of Waterloo's server has a weak DH key — suppress the noisy stack trace
+        const code = error?.cause?.code || error?.code;
+        if (code === "ERR_SSL_DH_KEY_TOO_SMALL") {
+            console.warn("Alerts unavailable: GRT server SSL issue (weak DH key)");
+        } else {
+            console.error("Error fetching alerts:", error);
+        }
         return [];
     }
 }
