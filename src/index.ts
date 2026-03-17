@@ -217,7 +217,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
     for (const { route, minutes } of topDepartures) {
         const timeText = minutes <= 1 ? "Due" : `${minutes}'`;
         const icon = getRouteIcon(route);
-        const spacing = " ".repeat(8 - route.length - timeText.length);
+        const spacing = "\u00A0".repeat(8 - route.length - timeText.length);
 
         // Show goal bar when departure is ≤5 min away
         const goalData = minutes <= 5 ? {
@@ -266,6 +266,9 @@ app.get("/", (_req: Request, res: Response) => {
             "/go-stop": "GO Transit stop-specific departures - ?stop=STOP_CODE",
             "/quick-view": "Quick view mode - ?quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
             "/quick-view/toggle": "Push notification (POST) - ?quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
+            "/track/start": "Start/toggle departure tracking (POST) - ?stop=STOP_ID&route=ROUTE_NUM",
+            "/track": "Departure tracking poll (App 2) - returns bracket-based frames",
+            "/track/stop": "Cancel departure tracking (POST)",
             "/health": "Health check",
         },
     });
@@ -1061,7 +1064,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
-            const noDataSpacing = " ".repeat(8 - routeFilter.length - 2);
+            const noDataSpacing = "\u00A0".repeat(8 - routeFilter.length - 2);
             await sendLaMetricNotification(
                 [{ text: `${routeFilter}${noDataSpacing}--`, icon: "24030" }],
                 { priority: "info" }
@@ -1071,7 +1074,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         }
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
-        const spacing = " ".repeat(8 - departure.route.length - timeText.length);
+        const spacing = "\u00A0".repeat(8 - departure.route.length - timeText.length);
 
         // Critical alert with goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
@@ -1122,7 +1125,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
-            const noDataSpacing = " ".repeat(8 - routeFilter.length - 2);
+            const noDataSpacing = "\u00A0".repeat(8 - routeFilter.length - 2);
             res.json({
                 frames: [{
                     text: `${routeFilter}${noDataSpacing}--`,
@@ -1133,7 +1136,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         }
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
-        const spacing = " ".repeat(8 - departure.route.length - timeText.length);
+        const spacing = "\u00A0".repeat(8 - departure.route.length - timeText.length);
 
         // Show goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
@@ -1163,6 +1166,337 @@ app.get("/quick-view", async (req: Request, res: Response) => {
             frames: [{ text: "Error", icon: "i555" }],
         });
     }
+});
+
+// ============================================
+// Departure Tracking (App 2 - "GRT Departure Alert")
+// ============================================
+
+interface TrackingState {
+    stopId: string;
+    route: string;
+    targetDepartureTime: string; // ISO-8601 from GRT API
+    startedAt: number;
+    notifiedMilestones: number[];
+    lastBracket: string; // "idle"|"tracking"|"10m"|"7m"|"6m"|"5m"
+    timers: NodeJS.Timeout[];
+}
+
+let activeTracking: TrackingState | null = null;
+
+const IDLE_TRACKING_FRAME: LaMetricFrame = { text: "\u00A0\u00A0IDLE\u00A0\u00A0", icon: "i11999" };
+
+function getMilestoneBracket(minutes: number): string {
+    if (minutes <= 0) return "arrived";
+    if (minutes <= 5) return "5m";
+    if (minutes <= 6) return "6m";
+    if (minutes <= 7) return "7m";
+    if (minutes <= 10) return "10m";
+    return "tracking";
+}
+
+function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
+    let timeText: string;
+    let goalData: LaMetricFrame["goalData"] | undefined;
+
+    switch (bracket) {
+        case "tracking":
+            timeText = "SOON";
+            break;
+        case "10m":
+            timeText = "10'";
+            break;
+        case "7m":
+            timeText = "7'";
+            break;
+        case "6m":
+            timeText = "6'";
+            break;
+        case "5m":
+            timeText = "5'";
+            goalData = { start: 0, current: 1, end: 1, unit: "" };
+            break;
+        default:
+            timeText = "--";
+    }
+
+    const spacing = "\u00A0".repeat(Math.max(1, 8 - route.length - timeText.length));
+
+    return {
+        text: `${route}${spacing}${timeText}`,
+        icon: getRouteIcon(route),
+        goalData,
+    };
+}
+
+// Send push notification to App 2 (Departure Alert)
+async function sendTrackingNotification(
+    frames: LaMetricFrame[],
+    options?: {
+        priority?: "info" | "warning" | "critical";
+        sound?: { category: string; id: string; repeat?: number };
+    }
+): Promise<boolean> {
+    const pushUrl = process.env.LAMETRIC_TRACK_PUSH_URL;
+    const pushToken = process.env.LAMETRIC_TRACK_PUSH_TOKEN;
+
+    if (!pushUrl || !pushToken) {
+        console.error("LAMETRIC_TRACK_PUSH_URL or LAMETRIC_TRACK_PUSH_TOKEN not configured");
+        return false;
+    }
+
+    try {
+        const payload: Record<string, unknown> = { frames };
+        if (options?.priority) payload.priority = options.priority;
+        if (options?.sound) payload.sound = options.sound;
+
+        const response = await fetch(pushUrl, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${pushToken}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        return response.ok;
+    } catch (error) {
+        console.error("Error sending tracking notification:", error);
+        return false;
+    }
+}
+
+async function pushMilestoneNotification(route: string, milestone: number): Promise<void> {
+    const milestoneText = `${milestone}'`;
+    const spacing = "\u00A0".repeat(Math.max(1, 8 - route.length - milestoneText.length));
+
+    let priority: "info" | "warning" | "critical";
+    let sound: { category: string; id: string; repeat?: number };
+
+    switch (milestone) {
+        case 5:
+            priority = "critical";
+            sound = { category: "notifications", id: "bicycle", repeat: 2 };
+            break;
+        case 6:
+            priority = "warning";
+            sound = { category: "notifications", id: "bicycle" };
+            break;
+        default:
+            priority = "info";
+            sound = { category: "notifications", id: "bicycle" };
+            break;
+    }
+
+    const frame: LaMetricFrame = {
+        text: `${route}${spacing}${milestoneText}`,
+        icon: getRouteIcon(route),
+    };
+
+    if (milestone <= 5) {
+        frame.goalData = { start: 0, current: 1, end: 1, unit: "" };
+    }
+
+    await sendTrackingNotification([frame], { priority, sound });
+
+    if (activeTracking) {
+        activeTracking.notifiedMilestones.push(milestone);
+    }
+
+    console.log(`Tracking milestone: route ${route}, ${milestone} minutes`);
+}
+
+// Start/toggle tracking — triggered by App 1 button press
+app.post("/track/start", async (req: Request, res: Response) => {
+    try {
+        const stopId = req.query.stop as string;
+        const route = req.query.route as string;
+
+        if (!stopId || !route) {
+            res.status(400).json({ error: "Missing stop or route" });
+            return;
+        }
+
+        // Toggle: if already tracking same stop+route, cancel
+        if (activeTracking && activeTracking.stopId === stopId && activeTracking.route === route) {
+            for (const timer of activeTracking.timers) {
+                clearTimeout(timer);
+            }
+            activeTracking = null;
+
+            await sendTrackingNotification(
+                [{ text: "TRACKOFF", icon: "i11999" }],
+                { priority: "info" }
+            );
+
+            console.log(`Tracking cancelled for route ${route} at stop ${stopId}`);
+            res.json({ success: true, action: "cancelled" });
+            return;
+        }
+
+        // Fetch live departures and find soonest for this route
+        const stops = await fetchDepartures([stopId]);
+        let bestDeparture: { minutes: number; route: string; departureTime: string } | null = null;
+
+        for (const stop of stops) {
+            for (const arrival of stop.arrivals) {
+                if (arrival.route.shortName !== route) continue;
+                const minutes = getMinutesUntil(arrival.departure);
+                if (minutes < 0 || minutes > 120) continue;
+                if (!bestDeparture || minutes < bestDeparture.minutes) {
+                    bestDeparture = { minutes, route: arrival.route.shortName, departureTime: arrival.departure };
+                }
+            }
+        }
+
+        if (!bestDeparture) {
+            const noDataSpacing = "\u00A0".repeat(Math.max(1, 8 - route.length - 2));
+            await sendTrackingNotification(
+                [{ text: `${route}${noDataSpacing}--`, icon: getRouteIcon(route) }],
+                { priority: "info" }
+            );
+            res.json({ success: true, action: "no_departures" });
+            return;
+        }
+
+        // Cancel any existing tracking
+        if (activeTracking) {
+            for (const timer of activeTracking.timers) {
+                clearTimeout(timer);
+            }
+        }
+
+        const minutesLeft = bestDeparture.minutes;
+
+        // Schedule milestone push notification timers
+        const timers: NodeJS.Timeout[] = [];
+        const milestones = [10, 7, 6, 5];
+
+        for (const milestone of milestones) {
+            if (minutesLeft > milestone) {
+                const delay = (minutesLeft - milestone) * 60 * 1000;
+                const timer = setTimeout(() => {
+                    pushMilestoneNotification(route, milestone);
+                }, delay);
+                timers.push(timer);
+            }
+        }
+
+        // Schedule cleanup at departure time
+        const cleanupDelay = minutesLeft * 60 * 1000;
+        const cleanupTimer = setTimeout(() => {
+            activeTracking = null;
+            console.log(`Tracking for route ${route} at stop ${stopId} auto-cleared (departed)`);
+        }, cleanupDelay);
+        timers.push(cleanupTimer);
+
+        // Store tracking state
+        const bracket = getMilestoneBracket(minutesLeft);
+        activeTracking = {
+            stopId,
+            route,
+            targetDepartureTime: bestDeparture.departureTime,
+            startedAt: Date.now(),
+            notifiedMilestones: [],
+            lastBracket: bracket,
+            timers,
+        };
+
+        // Push confirmation notification
+        const timeText = minutesLeft <= 1 ? "Due" : `${minutesLeft}'`;
+        const spacing = "\u00A0".repeat(Math.max(1, 8 - route.length - timeText.length));
+        await sendTrackingNotification(
+            [{ text: `${route}${spacing}${timeText}`, icon: getRouteIcon(route) }],
+            {
+                priority: "info",
+                sound: { category: "notifications", id: "bicycle" },
+            }
+        );
+
+        console.log(`Tracking started: route ${route} at stop ${stopId}, ${minutesLeft} min, bracket ${bracket}`);
+        res.json({
+            success: true,
+            action: "started",
+            route,
+            stopId,
+            minutesUntilDeparture: minutesLeft,
+            bracket,
+        });
+    } catch (error) {
+        console.error("Error in track/start:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// Poll endpoint for App 2 — returns bracket-based frames
+app.get("/track", async (_req: Request, res: Response) => {
+    try {
+        if (!activeTracking) {
+            res.json({ frames: [IDLE_TRACKING_FRAME] });
+            return;
+        }
+
+        const { stopId, route, lastBracket } = activeTracking;
+
+        // Re-fetch live departure from GRT API
+        let minutesLeft: number;
+        try {
+            const departure = await getQuickViewDeparture(stopId, route);
+            if (departure) {
+                minutesLeft = departure.minutes;
+            } else {
+                // No live data — estimate from stored target time
+                minutesLeft = getMinutesUntil(activeTracking.targetDepartureTime);
+            }
+        } catch {
+            // API failure — use stored target time estimate to avoid false notification
+            minutesLeft = getMinutesUntil(activeTracking.targetDepartureTime);
+        }
+
+        // Cleanup if departed
+        if (minutesLeft <= 0) {
+            for (const timer of activeTracking.timers) {
+                clearTimeout(timer);
+            }
+            activeTracking = null;
+            res.json({ frames: [IDLE_TRACKING_FRAME] });
+            return;
+        }
+
+        // Determine bracket and update state
+        const bracket = getMilestoneBracket(minutesLeft);
+        activeTracking.lastBracket = bracket;
+
+        res.json({ frames: [getTrackingFrame(route, bracket)] });
+    } catch (error) {
+        console.error("Error in track poll:", error);
+        // On error, return last known bracket frame to prevent false notification from data change
+        if (activeTracking) {
+            res.json({ frames: [getTrackingFrame(activeTracking.route, activeTracking.lastBracket)] });
+        } else {
+            res.json({ frames: [IDLE_TRACKING_FRAME] });
+        }
+    }
+});
+
+// Explicit cancel — App 2 button press
+app.post("/track/stop", async (_req: Request, res: Response) => {
+    if (activeTracking) {
+        for (const timer of activeTracking.timers) {
+            clearTimeout(timer);
+        }
+        const route = activeTracking.route;
+        activeTracking = null;
+
+        await sendTrackingNotification(
+            [{ text: "TRACKOFF", icon: "i11999" }],
+            { priority: "info" }
+        );
+
+        console.log(`Tracking stopped for route ${route}`);
+    }
+
+    res.json({ success: true, action: "stopped" });
 });
 
 // Health check endpoint
