@@ -119,7 +119,7 @@ function pxWidth(s: string): number {
 // Goal bar: full when ≤10 min, otherwise just highlights the route number
 function departureGoalData(route: string, minutes: number): LaMetricFrame["goalData"] {
     if (minutes <= 10) return { start: 0, current: 1, end: 1, unit: "" };
-    return { start: 0, current: pxWidth(route), end: 28, unit: "" };
+    return { start: 0, current: pxWidth(route) - 1, end: 28, unit: "" };
 }
 
 // Build padded text for LaMetric display (27px wide)
@@ -1072,12 +1072,25 @@ app.get("/quick-view/toggle", (_req: Request, res: Response) => {
     res.json({ status: "ok" });
 });
 
-// Quick view toggle endpoint - webhook triggered by button press
-// Pushes notification to LaMetric device AND starts departure tracking for App 2
-// Uses stop/route config stored from App 2's poll params
+// Quick view toggle endpoint - webhook triggered by button press on App 1
+// First press: starts tracking → App 2 begins showing countdown brackets
+// Second press: stops tracking → App 2 goes back to IDLE
 app.post("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
-        // Accept params directly (legacy) or use stored config from App 2 polls
+        // Toggle off: if already tracking, cancel
+        if (activeTracking) {
+            clearTimeout(activeTracking.cleanupTimer);
+            console.log(`Tracking stopped for route ${activeTracking.route}`);
+            activeTracking = null;
+            await sendLaMetricNotification(
+                [{ text: "TRACKOFF", icon: "24030" }],
+                { priority: "info" }
+            );
+            res.json({ success: true, action: "stopped" });
+            return;
+        }
+
+        // Toggle on: start tracking
         const stopId = (req.query.quickViewStop as string | undefined) || trackingConfig?.stopId;
         const routeFilter = (req.query.quickViewRoute as string | undefined) || trackingConfig?.route;
 
@@ -1086,7 +1099,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
             return;
         }
 
-        // Fetch departure for quick-view notification + tracking
+        // Fetch departure
         const stops = await fetchDepartures([stopId]);
         let bestDeparture: { minutes: number; route: string; departureTime: string } | null = null;
 
@@ -1110,12 +1123,10 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
             return;
         }
 
-        // Start tracking for App 2
         startTracking(stopId, routeFilter, bestDeparture.departureTime, bestDeparture.minutes);
 
-        // Push quick-view notification to App 1
+        // Push confirmation notification to App 1
         const timeText = bestDeparture.minutes <= 1 ? "Due" : `${bestDeparture.minutes}'`;
-
         const goalData = departureGoalData(bestDeparture.route, bestDeparture.minutes);
         const frame: LaMetricFrame = { text: padForDisplay(bestDeparture.route, timeText), icon: "24030", goalData };
 
@@ -1200,17 +1211,9 @@ let trackingConfig: { stopId: string; route: string } | null = null;
 
 const IDLE_TRACKING_FRAME: LaMetricFrame = { text: padForDisplay("", "IDLE"), icon: "i11999" };
 
-// Start or cancel tracking for a stop+route. Returns the action taken.
-function startTracking(stopId: string, route: string, departureTime: string, minutesLeft: number): "started" | "cancelled" {
-    // Toggle: if already tracking same stop+route, cancel
-    if (activeTracking && activeTracking.stopId === stopId && activeTracking.route === route) {
-        clearTimeout(activeTracking.cleanupTimer);
-        activeTracking = null;
-        console.log(`Tracking cancelled for route ${route} at stop ${stopId}`);
-        return "cancelled";
-    }
-
-    // Cancel any existing tracking (different route)
+// Start (or restart) tracking for a stop+route. Bus departing auto-clears.
+function startTracking(stopId: string, route: string, departureTime: string, minutesLeft: number): void {
+    // Clear any existing tracking
     if (activeTracking) {
         clearTimeout(activeTracking.cleanupTimer);
     }
@@ -1232,7 +1235,6 @@ function startTracking(stopId: string, route: string, departureTime: string, min
     };
 
     console.log(`Tracking started: route ${route} at stop ${stopId}, ${minutesLeft} min, bracket ${bracket}`);
-    return "started";
 }
 
 function getMilestoneBracket(minutes: number): string {
@@ -1311,13 +1313,13 @@ app.post("/track/start", async (req: Request, res: Response) => {
             return;
         }
 
-        const action = startTracking(stopId, route, bestDeparture.departureTime, bestDeparture.minutes);
+        startTracking(stopId, route, bestDeparture.departureTime, bestDeparture.minutes);
         res.json({
             success: true,
-            action,
+            action: "started",
             route,
             stopId,
-            minutesUntilDeparture: action === "started" ? bestDeparture.minutes : undefined,
+            minutesUntilDeparture: bestDeparture.minutes,
         });
     } catch (error) {
         console.error("Error in track/start:", error);
