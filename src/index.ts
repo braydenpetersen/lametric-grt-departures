@@ -1082,6 +1082,7 @@ app.get("/quick-view/toggle", async (req: Request, res: Response) => {
         if (activeTracking) {
             clearTimeout(activeTracking.cleanupTimer);
             console.log(`Tracking stopped for route ${activeTracking.route}`);
+            lastTracked = { route: activeTracking.route, stopId: activeTracking.stopId };
             activeTracking = null;
             await sendLaMetricNotification(
                 [{ text: "TRACKOFF", icon: TRACK_ICON_IDLE }],
@@ -1129,7 +1130,7 @@ app.get("/quick-view/toggle", async (req: Request, res: Response) => {
         // Push confirmation notification to App 1
         const timeText = bestDeparture.minutes <= 1 ? "Due" : `${bestDeparture.minutes}'`;
         const goalData = departureGoalData(bestDeparture.route, bestDeparture.minutes);
-        const icon = bestDeparture.minutes <= 10 ? TRACK_ICON_NEAR : TRACK_ICON_ACTIVE;
+        const icon = bestDeparture.minutes <= 10 ? TRACK_ICON_ACTIVE : TRACK_ICON_ACTIVE;
         const frame: LaMetricFrame = { text: padForDisplay(bestDeparture.route, timeText), icon, goalData };
 
         if (bestDeparture.minutes <= 5) {
@@ -1180,7 +1181,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         res.json({
             frames: [{
                 text: padForDisplay(departure.route, timeText),
-                icon: departure.minutes <= 10 ? TRACK_ICON_NEAR : TRACK_ICON_ACTIVE,
+                icon: departure.minutes <= 10 ? TRACK_ICON_ACTIVE : TRACK_ICON_ACTIVE,
                 goalData,
             }],
         });
@@ -1212,10 +1213,17 @@ let activeTracking: TrackingState | null = null;
 let trackingConfig: { stopId: string; route: string } | null = null;
 
 const TRACK_ICON_IDLE = "i24274";  // orange — idle
-const TRACK_ICON_ACTIVE = "i24029"; // blue — tracking (>10 min)
-const TRACK_ICON_NEAR = "i24030";   // animated — ≤10 min
+const TRACK_ICON_ACTIVE = "i24029"; // blue — active
 
-const IDLE_TRACKING_FRAME: LaMetricFrame = { text: padForDisplay("", "IDLE"), icon: TRACK_ICON_IDLE };
+// Last tracked route/stop — used for idle message after tracking ends
+let lastTracked: { route: string; stopId: string } | null = null;
+
+function getIdleFrame(): LaMetricFrame {
+    if (lastTracked) {
+        return { text: `Stopped tracking route ${lastTracked.route} for stop ${lastTracked.stopId}`, icon: TRACK_ICON_IDLE };
+    }
+    return { text: padForDisplay("", "IDLE"), icon: TRACK_ICON_IDLE };
+}
 
 // Start (or restart) tracking for a stop+route. Bus departing auto-clears.
 function startTracking(stopId: string, route: string, departureTime: string, minutesLeft: number): void {
@@ -1226,6 +1234,7 @@ function startTracking(stopId: string, route: string, departureTime: string, min
 
     // Schedule cleanup at departure time
     const cleanupTimer = setTimeout(() => {
+        lastTracked = { route, stopId };
         activeTracking = null;
         console.log(`Tracking for route ${route} at stop ${stopId} auto-cleared (departed)`);
     }, minutesLeft * 60 * 1000);
@@ -1302,7 +1311,7 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
             timeText = "--";
     }
 
-    const icon = bracket === "tracking" ? TRACK_ICON_ACTIVE : TRACK_ICON_NEAR;
+    const icon = bracket === "tracking" ? TRACK_ICON_ACTIVE : TRACK_ICON_ACTIVE;
 
     return {
         text: padForDisplay(route, timeText),
@@ -1369,7 +1378,7 @@ app.get("/track", async (req: Request, res: Response) => {
         }
 
         if (!activeTracking) {
-            res.json({ frames: [IDLE_TRACKING_FRAME] });
+            res.json({ frames: [getIdleFrame()] });
             return;
         }
 
@@ -1393,8 +1402,9 @@ app.get("/track", async (req: Request, res: Response) => {
         // Cleanup if departed
         if (minutesLeft <= 0) {
             clearTimeout(activeTracking.cleanupTimer);
+            lastTracked = { route, stopId };
             activeTracking = null;
-            res.json({ frames: [IDLE_TRACKING_FRAME] });
+            res.json({ frames: [getIdleFrame()] });
             return;
         }
 
@@ -1409,7 +1419,7 @@ app.get("/track", async (req: Request, res: Response) => {
         if (activeTracking) {
             res.json({ frames: [getTrackingFrame(activeTracking.route, activeTracking.lastBracket)] });
         } else {
-            res.json({ frames: [IDLE_TRACKING_FRAME] });
+            res.json({ frames: [getIdleFrame()] });
         }
     }
 });
@@ -1418,6 +1428,7 @@ app.get("/track", async (req: Request, res: Response) => {
 app.post("/track/stop", (_req: Request, res: Response) => {
     if (activeTracking) {
         clearTimeout(activeTracking.cleanupTimer);
+        lastTracked = { route: activeTracking.route, stopId: activeTracking.stopId };
         const route = activeTracking.route;
         activeTracking = null;
         console.log(`Tracking stopped for route ${route}`);
