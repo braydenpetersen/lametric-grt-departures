@@ -116,6 +116,11 @@ function pxWidth(s: string): number {
     return w + (s.length - 1); // 1px inter-character gap
 }
 
+// Goal bar that highlights just the route number (3–10 min window)
+function routeGoalData(route: string): LaMetricFrame["goalData"] {
+    return { start: 0, current: pxWidth(route), end: 27, unit: "" };
+}
+
 // Build padded text for LaMetric display (27px wide)
 // Invisible "|" chars (1px each) fill the gap between left and right text
 function padForDisplay(left: string, right: string): string {
@@ -236,13 +241,8 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         const timeText = minutes <= 1 ? "Due" : `${minutes}'`;
         const icon = getRouteIcon(route);
 
-        // Show goal bar when departure is ≤5 min away
-        const goalData = minutes <= 5 ? {
-            start: 0,
-            current: 1,
-            end: 1,
-            unit: "",
-        } : undefined;
+        // Show goal bar highlighting route number when 3–10 min away
+        const goalData = minutes <= 10 ? routeGoalData(route) : undefined;
 
         frames.push({
             text: padForDisplay(route, timeText),
@@ -1108,28 +1108,16 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         // Push quick-view notification to App 1
         const timeText = bestDeparture.minutes <= 1 ? "Due" : `${bestDeparture.minutes}'`;
 
+        const goalData = bestDeparture.minutes <= 10 ? routeGoalData(bestDeparture.route) : undefined;
+        const frame: LaMetricFrame = { text: padForDisplay(bestDeparture.route, timeText), icon: "24030", goalData };
+
         if (bestDeparture.minutes <= 5) {
-            await sendLaMetricNotification(
-                [{
-                    text: padForDisplay(bestDeparture.route, timeText),
-                    icon: "24030",
-                    goalData: {
-                        start: 0,
-                        current: 1,
-                        end: 1,
-                        unit: "",
-                    },
-                }],
-                {
-                    priority: "critical",
-                    sound: { category: "notifications", id: "bicycle", repeat: 1 },
-                }
-            );
+            await sendLaMetricNotification([frame], {
+                priority: "critical",
+                sound: { category: "notifications", id: "bicycle", repeat: 1 },
+            });
         } else {
-            await sendLaMetricNotification(
-                [{ text: padForDisplay(bestDeparture.route, timeText), icon: "24030" }],
-                { priority: "info" }
-            );
+            await sendLaMetricNotification([frame], { priority: "info" });
         }
 
         res.json({ success: true, action: "tracking", route: bestDeparture.route, minutes: bestDeparture.minutes });
@@ -1167,28 +1155,14 @@ app.get("/quick-view", async (req: Request, res: Response) => {
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
 
-        // Show goal bar at 5 minutes or less
-        if (departure.minutes <= 5) {
-            res.json({
-                frames: [{
-                    text: padForDisplay(departure.route, timeText),
-                    icon: "24030",
-                    goalData: {
-                        start: 0,
-                        current: 1,
-                        end: 1,
-                        unit: "",
-                    },
-                }],
-            });
-        } else {
-            res.json({
-                frames: [{
-                    text: padForDisplay(departure.route, timeText),
-                    icon: "24030",
-                }],
-            });
-        }
+        const goalData = departure.minutes <= 10 ? routeGoalData(departure.route) : undefined;
+        res.json({
+            frames: [{
+                text: padForDisplay(departure.route, timeText),
+                icon: "24030",
+                goalData,
+            }],
+        });
     } catch (error) {
         console.error("Error fetching quick view:", error);
         res.status(500).json({
@@ -1213,7 +1187,7 @@ interface TrackingState {
 
 let activeTracking: TrackingState | null = null;
 
-const IDLE_TRACKING_FRAME: LaMetricFrame = { text: "\u00A0\u00A0IDLE\u00A0\u00A0", icon: "i11999" };
+const IDLE_TRACKING_FRAME: LaMetricFrame = { text: padForDisplay("", "IDLE"), icon: "i11999" };
 
 // Start or cancel tracking for a stop+route. Returns the action taken.
 function startTracking(stopId: string, route: string, departureTime: string, minutesLeft: number): "started" | "cancelled" {
@@ -1269,16 +1243,19 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
             break;
         case "10m":
             timeText = "10'";
+            goalData = routeGoalData(route);
             break;
         case "7m":
             timeText = "7'";
+            goalData = routeGoalData(route);
             break;
         case "6m":
             timeText = "6'";
+            goalData = routeGoalData(route);
             break;
         case "5m":
             timeText = "5'";
-            goalData = { start: 0, current: 1, end: 1, unit: "" };
+            goalData = routeGoalData(route);
             break;
         default:
             timeText = "--";
