@@ -116,8 +116,9 @@ function pxWidth(s: string): number {
     return w + (s.length - 1); // 1px inter-character gap
 }
 
-// Goal bar that highlights just the route number (3–10 min window)
-function routeGoalData(route: string): LaMetricFrame["goalData"] {
+// Goal bar: full when ≤10 min, otherwise just highlights the route number
+function departureGoalData(route: string, minutes: number): LaMetricFrame["goalData"] {
+    if (minutes <= 10) return { start: 0, current: 1, end: 1, unit: "" };
     return { start: 0, current: pxWidth(route), end: 27, unit: "" };
 }
 
@@ -242,7 +243,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         const icon = getRouteIcon(route);
 
         // Show goal bar highlighting route number when 3–10 min away
-        const goalData = minutes <= 10 ? routeGoalData(route) : undefined;
+        const goalData = departureGoalData(route, minutes);
 
         frames.push({
             text: padForDisplay(route, timeText),
@@ -1113,7 +1114,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         // Push quick-view notification to App 1
         const timeText = bestDeparture.minutes <= 1 ? "Due" : `${bestDeparture.minutes}'`;
 
-        const goalData = bestDeparture.minutes <= 10 ? routeGoalData(bestDeparture.route) : undefined;
+        const goalData = departureGoalData(bestDeparture.route, bestDeparture.minutes);
         const frame: LaMetricFrame = { text: padForDisplay(bestDeparture.route, timeText), icon: "24030", goalData };
 
         if (bestDeparture.minutes <= 5) {
@@ -1160,7 +1161,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
 
-        const goalData = departure.minutes <= 10 ? routeGoalData(departure.route) : undefined;
+        const goalData = departureGoalData(departure.route, departure.minutes);
         res.json({
             frames: [{
                 text: padForDisplay(departure.route, timeText),
@@ -1245,22 +1246,23 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
     switch (bracket) {
         case "tracking":
             timeText = "SOON";
+            goalData = departureGoalData(route, 15); // >10 min — route-only bar
             break;
         case "10m":
             timeText = "10'";
-            goalData = routeGoalData(route);
+            goalData = departureGoalData(route, 10);
             break;
         case "7m":
             timeText = "7'";
-            goalData = routeGoalData(route);
+            goalData = departureGoalData(route, 7);
             break;
         case "6m":
             timeText = "6'";
-            goalData = routeGoalData(route);
+            goalData = departureGoalData(route, 6);
             break;
         case "5m":
             timeText = "5'";
-            goalData = routeGoalData(route);
+            goalData = departureGoalData(route, 5);
             break;
         default:
             timeText = "--";
