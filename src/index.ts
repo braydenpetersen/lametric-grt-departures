@@ -217,7 +217,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
     for (const { route, minutes } of topDepartures) {
         const timeText = minutes <= 1 ? "Due" : `${minutes}'`;
         const icon = getRouteIcon(route);
-        const spacing = route.length <= 2 ? "    " : "   ";
+        const spacing = " ".repeat(8 - route.length - timeText.length);
 
         // Show goal bar when departure is ≤5 min away
         const goalData = minutes <= 5 ? {
@@ -1061,7 +1061,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
-            const noDataSpacing = routeFilter.length <= 2 ? "    " : "   ";
+            const noDataSpacing = " ".repeat(8 - routeFilter.length - 2);
             await sendLaMetricNotification(
                 [{ text: `${routeFilter}${noDataSpacing}--`, icon: "24030" }],
                 { priority: "info" }
@@ -1071,7 +1071,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         }
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
-        const spacing = departure.route.length <= 2 ? "    " : "   ";
+        const spacing = " ".repeat(8 - departure.route.length - timeText.length);
 
         // Critical alert with goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
@@ -1122,7 +1122,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
-            const noDataSpacing = routeFilter.length <= 2 ? "    " : "   ";
+            const noDataSpacing = " ".repeat(8 - routeFilter.length - 2);
             res.json({
                 frames: [{
                     text: `${routeFilter}${noDataSpacing}--`,
@@ -1133,7 +1133,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         }
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
-        const spacing = departure.route.length <= 2 ? "    " : "   ";
+        const spacing = " ".repeat(8 - departure.route.length - timeText.length);
 
         // Show goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
