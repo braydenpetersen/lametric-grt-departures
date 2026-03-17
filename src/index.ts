@@ -119,7 +119,7 @@ function pxWidth(s: string): number {
 // Goal bar: full when ≤10 min, otherwise just highlights the route number
 function departureGoalData(route: string, minutes: number): LaMetricFrame["goalData"] {
     if (minutes <= 10) return { start: 0, current: 1, end: 1, unit: "" };
-    return { start: 0, current: pxWidth(route), end: 27, unit: "" };
+    return { start: 0, current: pxWidth(route), end: 28, unit: "" };
 }
 
 // Build padded text for LaMetric display (27px wide)
@@ -1074,13 +1074,15 @@ app.get("/quick-view/toggle", (_req: Request, res: Response) => {
 
 // Quick view toggle endpoint - webhook triggered by button press
 // Pushes notification to LaMetric device AND starts departure tracking for App 2
+// Uses stop/route config stored from App 2's poll params
 app.post("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
-        const stopId = req.query.quickViewStop as string | undefined;
-        const routeFilter = req.query.quickViewRoute as string | undefined;
+        // Accept params directly (legacy) or use stored config from App 2 polls
+        const stopId = (req.query.quickViewStop as string | undefined) || trackingConfig?.stopId;
+        const routeFilter = (req.query.quickViewRoute as string | undefined) || trackingConfig?.route;
 
         if (!stopId || !routeFilter) {
-            res.status(400).json({ error: "Missing quickViewStop or quickViewRoute" });
+            res.status(400).json({ error: "No stop/route configured — install and configure App 2 first" });
             return;
         }
 
@@ -1192,6 +1194,9 @@ interface TrackingState {
 }
 
 let activeTracking: TrackingState | null = null;
+
+// Stored config from App 2's poll params — used by quick-view/toggle
+let trackingConfig: { stopId: string; route: string } | null = null;
 
 const IDLE_TRACKING_FRAME: LaMetricFrame = { text: padForDisplay("", "IDLE"), icon: "i11999" };
 
@@ -1322,8 +1327,16 @@ app.post("/track/start", async (req: Request, res: Response) => {
 
 // Poll endpoint for App 2 — returns bracket-based frames
 // Response only changes at milestone boundaries → LaMetric auto-notifies on change
-app.get("/track", async (_req: Request, res: Response) => {
+// Also stores stop/route params so quick-view/toggle can use them
+app.get("/track", async (req: Request, res: Response) => {
     try {
+        // Store config from App 2's poll params
+        const pollStop = req.query.stop as string | undefined;
+        const pollRoute = req.query.route as string | undefined;
+        if (pollStop && pollRoute) {
+            trackingConfig = { stopId: pollStop, route: pollRoute };
+        }
+
         if (!activeTracking) {
             res.json({ frames: [IDLE_TRACKING_FRAME] });
             return;
