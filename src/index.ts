@@ -108,7 +108,7 @@ interface LaMetricResponse {
 // Pixel width of a string on the LaMetric display
 // 1px: narrow chars, 3px: standard, 4px: n/N, 5px: m/M/w/W
 // Plus 1px gap between each character
-const NARROW_CHARS = new Set("'|:. !1il;,");
+const NARROW_CHARS = new Set("'|:. !il;,");
 const WIDE5_CHARS = new Set("mMwW");
 const WIDE4_CHARS = new Set("nN");
 
@@ -1087,7 +1087,7 @@ app.get("/quick-view/toggle", async (req: Request, res: Response) => {
             console.log(`Tracking stopped for route ${activeTracking.route}`);
             activeTracking = null;
             await sendLaMetricNotification(
-                [{ text: "TRACKOFF", icon: "24030" }],
+                [{ text: "TRACKOFF", icon: TRACK_ICON_IDLE }],
                 { priority: "info" }
             );
             res.json({ success: true, action: "stopped" });
@@ -1120,7 +1120,7 @@ app.get("/quick-view/toggle", async (req: Request, res: Response) => {
 
         if (!bestDeparture) {
             await sendLaMetricNotification(
-                [{ text: padForDisplay(routeFilter, "--"), icon: "24030" }],
+                [{ text: padForDisplay(routeFilter, "--"), icon: TRACK_ICON_ACTIVE }],
                 { priority: "info" }
             );
             res.json({ success: true, message: "No departures found" });
@@ -1132,7 +1132,8 @@ app.get("/quick-view/toggle", async (req: Request, res: Response) => {
         // Push confirmation notification to App 1
         const timeText = bestDeparture.minutes <= 1 ? "Due" : `${bestDeparture.minutes}'`;
         const goalData = departureGoalData(bestDeparture.route, bestDeparture.minutes);
-        const frame: LaMetricFrame = { text: padForDisplay(bestDeparture.route, timeText), icon: "24030", goalData };
+        const icon = bestDeparture.minutes <= 10 ? TRACK_ICON_NEAR : TRACK_ICON_ACTIVE;
+        const frame: LaMetricFrame = { text: padForDisplay(bestDeparture.route, timeText), icon, goalData };
 
         if (bestDeparture.minutes <= 5) {
             await sendLaMetricNotification([frame], {
@@ -1170,7 +1171,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
             res.json({
                 frames: [{
                     text: padForDisplay(routeFilter, "--"),
-                    icon: "24030",
+                    icon: TRACK_ICON_ACTIVE,
                 }],
             });
             return;
@@ -1182,7 +1183,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         res.json({
             frames: [{
                 text: padForDisplay(departure.route, timeText),
-                icon: "24030",
+                icon: departure.minutes <= 10 ? TRACK_ICON_NEAR : TRACK_ICON_ACTIVE,
                 goalData,
             }],
         });
@@ -1213,7 +1214,11 @@ let activeTracking: TrackingState | null = null;
 // Stored config from App 2's poll params — used by quick-view/toggle
 let trackingConfig: { stopId: string; route: string } | null = null;
 
-const IDLE_TRACKING_FRAME: LaMetricFrame = { text: padForDisplay("", "IDLE"), icon: "i11999" };
+const TRACK_ICON_IDLE = "i24274";  // orange — idle
+const TRACK_ICON_ACTIVE = "i24029"; // blue — tracking (>10 min)
+const TRACK_ICON_NEAR = "i24030";   // animated — ≤10 min
+
+const IDLE_TRACKING_FRAME: LaMetricFrame = { text: padForDisplay("", "IDLE"), icon: TRACK_ICON_IDLE };
 
 // Start (or restart) tracking for a stop+route. Bus departing auto-clears.
 function startTracking(stopId: string, route: string, departureTime: string, minutesLeft: number): void {
@@ -1299,9 +1304,11 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
             timeText = "--";
     }
 
+    const icon = bracket === "tracking" ? TRACK_ICON_ACTIVE : TRACK_ICON_NEAR;
+
     return {
         text: padForDisplay(route, timeText),
-        icon: getRouteIcon(route),
+        icon,
         goalData,
     };
 }
