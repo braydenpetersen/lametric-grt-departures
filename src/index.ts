@@ -106,12 +106,20 @@ interface LaMetricResponse {
 }
 
 // Pixel width of a string on the LaMetric display
-// Digits/letters: 3px, apostrophe/pipe/colon: 1px, plus 1px gap between each character
+// 1px: narrow chars, 3px: standard, 4px: n/N, 5px: m/M/w/W
+// Plus 1px gap between each character
+const NARROW_CHARS = new Set("'|:. !1il;,");
+const WIDE5_CHARS = new Set("mMwW");
+const WIDE4_CHARS = new Set("nN");
+
 function pxWidth(s: string): number {
     if (s.length === 0) return 0;
     let w = 0;
     for (const ch of s) {
-        w += (ch === "'" || ch === "|" || ch === ":" || ch === "." || ch === "!" || ch === " ") ? 1 : 3;
+        if (NARROW_CHARS.has(ch)) w += 1;
+        else if (WIDE5_CHARS.has(ch)) w += 5;
+        else if (WIDE4_CHARS.has(ch)) w += 4;
+        else w += 3;
     }
     return w + (s.length - 1); // 1px inter-character gap
 }
@@ -119,7 +127,8 @@ function pxWidth(s: string): number {
 // Goal bar: full when ≤10 min, otherwise just highlights the route number
 function departureGoalData(route: string, minutes: number): LaMetricFrame["goalData"] {
     if (minutes <= 10) return { start: 0, current: 1, end: 1, unit: "" };
-    return { start: 0, current: pxWidth(route) - 1, end: 28, unit: "" };
+    // Scale by 2 to allow half-pixel precision (e.g. 7px route → 13/56 = 6.5/28)
+    return { start: 0, current: pxWidth(route) * 2 - 1, end: 56, unit: "" };
 }
 
 // Build padded text for LaMetric display (27px wide)
@@ -1067,15 +1076,11 @@ async function sendLaMetricNotification(
     }
 }
 
-// GET handler so LaMetric's URL validator passes
-app.get("/quick-view/toggle", (_req: Request, res: Response) => {
-    res.json({ status: "ok" });
-});
-
-// Quick view toggle endpoint - webhook triggered by button press on App 1
+// Quick view toggle endpoint - triggered by button press on App 1
+// LaMetric sends GET for action buttons. Also handles POST for curl/testing.
 // First press: starts tracking → App 2 begins showing countdown brackets
 // Second press: stops tracking → App 2 goes back to IDLE
-app.post("/quick-view/toggle", async (req: Request, res: Response) => {
+app.all("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
         // Toggle off: if already tracking, cancel
         if (activeTracking) {
@@ -1239,9 +1244,13 @@ function startTracking(stopId: string, route: string, departureTime: string, min
 
 function getMilestoneBracket(minutes: number): string {
     if (minutes <= 0) return "arrived";
-    if (minutes <= 5) return "5m";
-    if (minutes <= 6) return "6m";
-    if (minutes <= 7) return "7m";
+    if (minutes === 1) return "1m";
+    if (minutes === 2) return "2m";
+    if (minutes === 3) return "3m";
+    if (minutes === 4) return "4m";
+    if (minutes === 5) return "5m";
+    if (minutes === 6) return "6m";
+    if (minutes === 7) return "7m";
     if (minutes <= 10) return "10m";
     return "tracking";
 }
@@ -1253,7 +1262,7 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
     switch (bracket) {
         case "tracking":
             timeText = "SOON";
-            goalData = departureGoalData(route, 15); // >10 min — route-only bar
+            goalData = departureGoalData(route, 15);
             break;
         case "10m":
             timeText = "10'";
@@ -1270,6 +1279,22 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
         case "5m":
             timeText = "5'";
             goalData = departureGoalData(route, 5);
+            break;
+        case "4m":
+            timeText = "4'";
+            goalData = departureGoalData(route, 4);
+            break;
+        case "3m":
+            timeText = "3'";
+            goalData = departureGoalData(route, 3);
+            break;
+        case "2m":
+            timeText = "2'";
+            goalData = departureGoalData(route, 2);
+            break;
+        case "1m":
+            timeText = "1'";
+            goalData = departureGoalData(route, 1);
             break;
         default:
             timeText = "--";
