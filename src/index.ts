@@ -1000,29 +1000,72 @@ async function getQuickViewDeparture(stopId: string, routeFilter: string): Promi
     return matchingDeparture;
 }
 
-// Quick view toggle endpoint - called when button is pressed on LaMetric
-// Returns LaMetric-formatted response for display
+// Send a notification to a LaMetric device
+async function sendLaMetricNotification(
+    frames: LaMetricFrame[],
+    options?: {
+        priority?: "info" | "warning" | "critical";
+        sound?: { category: string; id: string; repeat?: number };
+    }
+): Promise<boolean> {
+    const deviceIp = process.env.LAMETRIC_DEVICE_IP;
+    const apiKey = process.env.LAMETRIC_API_KEY;
+
+    if (!deviceIp || !apiKey) {
+        console.error("LAMETRIC_DEVICE_IP or LAMETRIC_API_KEY not configured");
+        return false;
+    }
+
+    try {
+        const auth = Buffer.from(`dev:${apiKey}`).toString("base64");
+
+        const payload: Record<string, unknown> = {
+            model: { frames },
+        };
+
+        if (options?.priority) {
+            payload.priority = options.priority;
+        }
+        if (options?.sound) {
+            payload.model = { ...payload.model as object, sound: options.sound };
+        }
+
+        const response = await fetch(`http://${deviceIp}:8080/api/v2/device/notifications`, {
+            method: "POST",
+            headers: {
+                Authorization: `Basic ${auth}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        return response.ok;
+    } catch (error) {
+        console.error("Error sending LaMetric notification:", error);
+        return false;
+    }
+}
+
+// Quick view toggle endpoint - webhook triggered by button press
+// Pushes notification to LaMetric device
 app.post("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
         const stopId = req.query.quickViewStop as string | undefined;
         const routeFilter = req.query.quickViewRoute as string | undefined;
 
         if (!stopId || !routeFilter) {
-            res.json({
-                frames: [{ text: "Configure stop & route", icon: "i555" }],
-            });
+            res.status(400).json({ error: "Missing quickViewStop or quickViewRoute" });
             return;
         }
 
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
-            res.json({
-                frames: [{
-                    text: `${routeFilter} | --`,
-                    icon: "24030",
-                }],
-            });
+            await sendLaMetricNotification(
+                [{ text: `${routeFilter} | --`, icon: "24030" }],
+                { priority: "info" }
+            );
+            res.json({ success: true, message: "No departures found" });
             return;
         }
 
@@ -1030,8 +1073,8 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
 
         // Critical alert with goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
-            res.json({
-                frames: [{
+            await sendLaMetricNotification(
+                [{
                     text: `${departure.route} | ${timeText}`,
                     icon: "24030",
                     goalData: {
@@ -1041,26 +1084,22 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
                         unit: "",
                     },
                 }],
-                sound: {
-                    category: "notifications",
-                    id: "bicycle",
-                    repeat: 1,
-                },
-                priority: "critical",
-            });
+                {
+                    priority: "critical",
+                    sound: { category: "notifications", id: "bicycle", repeat: 1 },
+                }
+            );
         } else {
-            res.json({
-                frames: [{
-                    text: `${departure.route} | ${timeText}`,
-                    icon: "24030",
-                }],
-            });
+            await sendLaMetricNotification(
+                [{ text: `${departure.route} | ${timeText}`, icon: "24030" }],
+                { priority: "info" }
+            );
         }
+
+        res.json({ success: true, route: departure.route, minutes: departure.minutes });
     } catch (error) {
         console.error("Error in quick-view toggle:", error);
-        res.status(500).json({
-            frames: [{ text: "Error", icon: "i555" }],
-        });
+        res.status(500).json({ error: "Internal server error" });
     }
 });
 
@@ -1127,12 +1166,6 @@ app.get("/health", (_req: Request, res: Response) => {
     res.json({ status: "ok" });
 });
 
-// Start server only when running locally (not on Vercel)
-if (process.env.NODE_ENV !== "production") {
-    app.listen(PORT, () => {
-        console.log(`🚌 GRT LaMetric API running on port ${PORT}`);
-    });
-}
-
-// Export for Vercel
-export default app;
+app.listen(PORT, () => {
+    console.log(`🚌 GRT LaMetric API running on port ${PORT}`);
+});
