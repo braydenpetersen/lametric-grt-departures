@@ -105,6 +105,18 @@ interface LaMetricResponse {
     frames: LaMetricFrame[];
 }
 
+// Build padded text for LaMetric display (8 chars max)
+// Uses alternating "| " to trick the display into rendering spaces
+function padForDisplay(left: string, right: string): string {
+    const gap = 8 - left.length - right.length;
+    if (gap <= 0) return `${left}${right}`;
+    let spacing = "";
+    for (let i = 0; i < gap; i++) {
+        spacing += i % 2 === 0 ? "|" : " ";
+    }
+    return `${left}${spacing}${right}`;
+}
+
 // Calculate minutes until departure
 function getMinutesUntil(departureTime: string): number {
     const now = new Date();
@@ -217,7 +229,6 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
     for (const { route, minutes } of topDepartures) {
         const timeText = minutes <= 1 ? "Due" : `${minutes}'`;
         const icon = getRouteIcon(route);
-        const spacing = "\u00A0".repeat(8 - route.length - timeText.length);
 
         // Show goal bar when departure is ≤5 min away
         const goalData = minutes <= 5 ? {
@@ -228,7 +239,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         } : undefined;
 
         frames.push({
-            text: `${route}${spacing}${timeText}`,
+            text: padForDisplay(route, timeText),
             icon,
             goalData,
         });
@@ -239,7 +250,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         const next = getNextScheduledDeparture(stopIds);
         if (next) {
             frames.push({
-                text: `${next.route} ${next.time}`,
+                text: padForDisplay(next.route, next.time),
                 icon: getRouteIcon(next.route),
             });
         } else {
@@ -1050,7 +1061,7 @@ async function sendLaMetricNotification(
 }
 
 // Quick view toggle endpoint - webhook triggered by button press
-// Pushes notification to LaMetric device
+// Pushes notification to LaMetric device AND toggles departure tracking for App 2
 app.post("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
         const stopId = req.query.quickViewStop as string | undefined;
@@ -1061,26 +1072,40 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
             return;
         }
 
-        const departure = await getQuickViewDeparture(stopId, routeFilter);
+        // Fetch departure for quick-view notification + tracking
+        const stops = await fetchDepartures([stopId]);
+        let bestDeparture: { minutes: number; route: string; departureTime: string } | null = null;
 
-        if (!departure) {
-            const noDataSpacing = "\u00A0".repeat(8 - routeFilter.length - 2);
+        for (const stop of stops) {
+            for (const arrival of stop.arrivals) {
+                if (arrival.route.shortName !== routeFilter) continue;
+                const minutes = getMinutesUntil(arrival.departure);
+                if (minutes < 0 || minutes > 120) continue;
+                if (!bestDeparture || minutes < bestDeparture.minutes) {
+                    bestDeparture = { minutes, route: arrival.route.shortName, departureTime: arrival.departure };
+                }
+            }
+        }
+
+        if (!bestDeparture) {
             await sendLaMetricNotification(
-                [{ text: `${routeFilter}${noDataSpacing}--`, icon: "24030" }],
+                [{ text: padForDisplay(routeFilter, "--"), icon: "24030" }],
                 { priority: "info" }
             );
             res.json({ success: true, message: "No departures found" });
             return;
         }
 
-        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
-        const spacing = "\u00A0".repeat(8 - departure.route.length - timeText.length);
+        // Start tracking for App 2
+        startTracking(stopId, routeFilter, bestDeparture.departureTime, bestDeparture.minutes);
 
-        // Critical alert with goal bar at 5 minutes or less
-        if (departure.minutes <= 5) {
+        // Push quick-view notification to App 1
+        const timeText = bestDeparture.minutes <= 1 ? "Due" : `${bestDeparture.minutes}'`;
+
+        if (bestDeparture.minutes <= 5) {
             await sendLaMetricNotification(
                 [{
-                    text: `${departure.route}${spacing}${timeText}`,
+                    text: padForDisplay(bestDeparture.route, timeText),
                     icon: "24030",
                     goalData: {
                         start: 0,
@@ -1096,12 +1121,12 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
             );
         } else {
             await sendLaMetricNotification(
-                [{ text: `${departure.route}${spacing}${timeText}`, icon: "24030" }],
+                [{ text: padForDisplay(bestDeparture.route, timeText), icon: "24030" }],
                 { priority: "info" }
             );
         }
 
-        res.json({ success: true, route: departure.route, minutes: departure.minutes });
+        res.json({ success: true, action: "tracking", route: bestDeparture.route, minutes: bestDeparture.minutes });
     } catch (error) {
         console.error("Error in quick-view toggle:", error);
         res.status(500).json({ error: "Internal server error" });
@@ -1125,10 +1150,9 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
-            const noDataSpacing = "\u00A0".repeat(8 - routeFilter.length - 2);
             res.json({
                 frames: [{
-                    text: `${routeFilter}${noDataSpacing}--`,
+                    text: padForDisplay(routeFilter, "--"),
                     icon: "24030",
                 }],
             });
@@ -1136,13 +1160,12 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         }
 
         const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
-        const spacing = "\u00A0".repeat(8 - departure.route.length - timeText.length);
 
         // Show goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
             res.json({
                 frames: [{
-                    text: `${departure.route}${spacing}${timeText}`,
+                    text: padForDisplay(departure.route, timeText),
                     icon: "24030",
                     goalData: {
                         start: 0,
@@ -1155,7 +1178,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         } else {
             res.json({
                 frames: [{
-                    text: `${departure.route}${spacing}${timeText}`,
+                    text: padForDisplay(departure.route, timeText),
                     icon: "24030",
                 }],
             });
@@ -1170,6 +1193,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
 
 // ============================================
 // Departure Tracking (App 2 - "GRT Departure Alert")
+// Poll-only: bracket changes trigger LaMetric notifications
 // ============================================
 
 interface TrackingState {
@@ -1177,14 +1201,48 @@ interface TrackingState {
     route: string;
     targetDepartureTime: string; // ISO-8601 from GRT API
     startedAt: number;
-    notifiedMilestones: number[];
     lastBracket: string; // "idle"|"tracking"|"10m"|"7m"|"6m"|"5m"
-    timers: NodeJS.Timeout[];
+    cleanupTimer: NodeJS.Timeout;
 }
 
 let activeTracking: TrackingState | null = null;
 
 const IDLE_TRACKING_FRAME: LaMetricFrame = { text: "\u00A0\u00A0IDLE\u00A0\u00A0", icon: "i11999" };
+
+// Start or cancel tracking for a stop+route. Returns the action taken.
+function startTracking(stopId: string, route: string, departureTime: string, minutesLeft: number): "started" | "cancelled" {
+    // Toggle: if already tracking same stop+route, cancel
+    if (activeTracking && activeTracking.stopId === stopId && activeTracking.route === route) {
+        clearTimeout(activeTracking.cleanupTimer);
+        activeTracking = null;
+        console.log(`Tracking cancelled for route ${route} at stop ${stopId}`);
+        return "cancelled";
+    }
+
+    // Cancel any existing tracking (different route)
+    if (activeTracking) {
+        clearTimeout(activeTracking.cleanupTimer);
+    }
+
+    // Schedule cleanup at departure time
+    const cleanupTimer = setTimeout(() => {
+        activeTracking = null;
+        console.log(`Tracking for route ${route} at stop ${stopId} auto-cleared (departed)`);
+    }, minutesLeft * 60 * 1000);
+
+    const bracket = getMilestoneBracket(minutesLeft);
+    activeTracking = {
+        stopId,
+        route,
+        targetDepartureTime: departureTime,
+        startedAt: Date.now(),
+        lastBracket: bracket,
+        cleanupTimer,
+    };
+
+    console.log(`Tracking started: route ${route} at stop ${stopId}, ${minutesLeft} min, bracket ${bracket}`);
+    return "started";
+}
 
 function getMilestoneBracket(minutes: number): string {
     if (minutes <= 0) return "arrived";
@@ -1220,93 +1278,14 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
             timeText = "--";
     }
 
-    const spacing = "\u00A0".repeat(Math.max(1, 8 - route.length - timeText.length));
-
     return {
-        text: `${route}${spacing}${timeText}`,
+        text: padForDisplay(route, timeText),
         icon: getRouteIcon(route),
         goalData,
     };
 }
 
-// Send push notification to App 2 (Departure Alert)
-async function sendTrackingNotification(
-    frames: LaMetricFrame[],
-    options?: {
-        priority?: "info" | "warning" | "critical";
-        sound?: { category: string; id: string; repeat?: number };
-    }
-): Promise<boolean> {
-    const pushUrl = process.env.LAMETRIC_TRACK_PUSH_URL;
-    const pushToken = process.env.LAMETRIC_TRACK_PUSH_TOKEN;
-
-    if (!pushUrl || !pushToken) {
-        console.error("LAMETRIC_TRACK_PUSH_URL or LAMETRIC_TRACK_PUSH_TOKEN not configured");
-        return false;
-    }
-
-    try {
-        const payload: Record<string, unknown> = { frames };
-        if (options?.priority) payload.priority = options.priority;
-        if (options?.sound) payload.sound = options.sound;
-
-        const response = await fetch(pushUrl, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${pushToken}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-        });
-
-        return response.ok;
-    } catch (error) {
-        console.error("Error sending tracking notification:", error);
-        return false;
-    }
-}
-
-async function pushMilestoneNotification(route: string, milestone: number): Promise<void> {
-    const milestoneText = `${milestone}'`;
-    const spacing = "\u00A0".repeat(Math.max(1, 8 - route.length - milestoneText.length));
-
-    let priority: "info" | "warning" | "critical";
-    let sound: { category: string; id: string; repeat?: number };
-
-    switch (milestone) {
-        case 5:
-            priority = "critical";
-            sound = { category: "notifications", id: "bicycle", repeat: 2 };
-            break;
-        case 6:
-            priority = "warning";
-            sound = { category: "notifications", id: "bicycle" };
-            break;
-        default:
-            priority = "info";
-            sound = { category: "notifications", id: "bicycle" };
-            break;
-    }
-
-    const frame: LaMetricFrame = {
-        text: `${route}${spacing}${milestoneText}`,
-        icon: getRouteIcon(route),
-    };
-
-    if (milestone <= 5) {
-        frame.goalData = { start: 0, current: 1, end: 1, unit: "" };
-    }
-
-    await sendTrackingNotification([frame], { priority, sound });
-
-    if (activeTracking) {
-        activeTracking.notifiedMilestones.push(milestone);
-    }
-
-    console.log(`Tracking milestone: route ${route}, ${milestone} minutes`);
-}
-
-// Start/toggle tracking — triggered by App 1 button press
+// Start/toggle tracking — standalone endpoint (alternative to quick-view/toggle)
 app.post("/track/start", async (req: Request, res: Response) => {
     try {
         const stopId = req.query.stop as string;
@@ -1314,23 +1293,6 @@ app.post("/track/start", async (req: Request, res: Response) => {
 
         if (!stopId || !route) {
             res.status(400).json({ error: "Missing stop or route" });
-            return;
-        }
-
-        // Toggle: if already tracking same stop+route, cancel
-        if (activeTracking && activeTracking.stopId === stopId && activeTracking.route === route) {
-            for (const timer of activeTracking.timers) {
-                clearTimeout(timer);
-            }
-            activeTracking = null;
-
-            await sendTrackingNotification(
-                [{ text: "TRACKOFF", icon: "i11999" }],
-                { priority: "info" }
-            );
-
-            console.log(`Tracking cancelled for route ${route} at stop ${stopId}`);
-            res.json({ success: true, action: "cancelled" });
             return;
         }
 
@@ -1350,77 +1312,17 @@ app.post("/track/start", async (req: Request, res: Response) => {
         }
 
         if (!bestDeparture) {
-            const noDataSpacing = "\u00A0".repeat(Math.max(1, 8 - route.length - 2));
-            await sendTrackingNotification(
-                [{ text: `${route}${noDataSpacing}--`, icon: getRouteIcon(route) }],
-                { priority: "info" }
-            );
             res.json({ success: true, action: "no_departures" });
             return;
         }
 
-        // Cancel any existing tracking
-        if (activeTracking) {
-            for (const timer of activeTracking.timers) {
-                clearTimeout(timer);
-            }
-        }
-
-        const minutesLeft = bestDeparture.minutes;
-
-        // Schedule milestone push notification timers
-        const timers: NodeJS.Timeout[] = [];
-        const milestones = [10, 7, 6, 5];
-
-        for (const milestone of milestones) {
-            if (minutesLeft > milestone) {
-                const delay = (minutesLeft - milestone) * 60 * 1000;
-                const timer = setTimeout(() => {
-                    pushMilestoneNotification(route, milestone);
-                }, delay);
-                timers.push(timer);
-            }
-        }
-
-        // Schedule cleanup at departure time
-        const cleanupDelay = minutesLeft * 60 * 1000;
-        const cleanupTimer = setTimeout(() => {
-            activeTracking = null;
-            console.log(`Tracking for route ${route} at stop ${stopId} auto-cleared (departed)`);
-        }, cleanupDelay);
-        timers.push(cleanupTimer);
-
-        // Store tracking state
-        const bracket = getMilestoneBracket(minutesLeft);
-        activeTracking = {
-            stopId,
-            route,
-            targetDepartureTime: bestDeparture.departureTime,
-            startedAt: Date.now(),
-            notifiedMilestones: [],
-            lastBracket: bracket,
-            timers,
-        };
-
-        // Push confirmation notification
-        const timeText = minutesLeft <= 1 ? "Due" : `${minutesLeft}'`;
-        const spacing = "\u00A0".repeat(Math.max(1, 8 - route.length - timeText.length));
-        await sendTrackingNotification(
-            [{ text: `${route}${spacing}${timeText}`, icon: getRouteIcon(route) }],
-            {
-                priority: "info",
-                sound: { category: "notifications", id: "bicycle" },
-            }
-        );
-
-        console.log(`Tracking started: route ${route} at stop ${stopId}, ${minutesLeft} min, bracket ${bracket}`);
+        const action = startTracking(stopId, route, bestDeparture.departureTime, bestDeparture.minutes);
         res.json({
             success: true,
-            action: "started",
+            action,
             route,
             stopId,
-            minutesUntilDeparture: minutesLeft,
-            bracket,
+            minutesUntilDeparture: action === "started" ? bestDeparture.minutes : undefined,
         });
     } catch (error) {
         console.error("Error in track/start:", error);
@@ -1429,6 +1331,7 @@ app.post("/track/start", async (req: Request, res: Response) => {
 });
 
 // Poll endpoint for App 2 — returns bracket-based frames
+// Response only changes at milestone boundaries → LaMetric auto-notifies on change
 app.get("/track", async (_req: Request, res: Response) => {
     try {
         if (!activeTracking) {
@@ -1436,7 +1339,7 @@ app.get("/track", async (_req: Request, res: Response) => {
             return;
         }
 
-        const { stopId, route, lastBracket } = activeTracking;
+        const { stopId, route } = activeTracking;
 
         // Re-fetch live departure from GRT API
         let minutesLeft: number;
@@ -1455,9 +1358,7 @@ app.get("/track", async (_req: Request, res: Response) => {
 
         // Cleanup if departed
         if (minutesLeft <= 0) {
-            for (const timer of activeTracking.timers) {
-                clearTimeout(timer);
-            }
+            clearTimeout(activeTracking.cleanupTimer);
             activeTracking = null;
             res.json({ frames: [IDLE_TRACKING_FRAME] });
             return;
@@ -1480,19 +1381,11 @@ app.get("/track", async (_req: Request, res: Response) => {
 });
 
 // Explicit cancel — App 2 button press
-app.post("/track/stop", async (_req: Request, res: Response) => {
+app.post("/track/stop", (_req: Request, res: Response) => {
     if (activeTracking) {
-        for (const timer of activeTracking.timers) {
-            clearTimeout(timer);
-        }
+        clearTimeout(activeTracking.cleanupTimer);
         const route = activeTracking.route;
         activeTracking = null;
-
-        await sendTrackingNotification(
-            [{ text: "TRACKOFF", icon: "i11999" }],
-            { priority: "info" }
-        );
-
         console.log(`Tracking stopped for route ${route}`);
     }
 
