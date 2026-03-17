@@ -202,15 +202,22 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         }
     }
 
-    // Sort by soonest and take top 3
+    // Sort by soonest, deduplicate by route, and take top 3 unique lines
+    const seen = new Set<string>();
     const topDepartures = allDepartures
         .sort((a, b) => a.minutes - b.minutes)
+        .filter(d => {
+            if (seen.has(d.route)) return false;
+            seen.add(d.route);
+            return true;
+        })
         .slice(0, 3);
 
     // Create one frame per departure
     for (const { route, minutes } of topDepartures) {
-        const timeText = minutes <= 1 ? "Due" : `${minutes}M`;
+        const timeText = minutes <= 1 ? "Due" : `${minutes}'`;
         const icon = getRouteIcon(route);
+        const spacing = route.length <= 2 ? "    " : "   ";
 
         // Show goal bar when departure is ≤5 min away
         const goalData = minutes <= 5 ? {
@@ -221,7 +228,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         } : undefined;
 
         frames.push({
-            text: `${route} | ${timeText}`,
+            text: `${route}${spacing}${timeText}`,
             icon,
             goalData,
         });
@@ -1054,21 +1061,23 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
+            const noDataSpacing = routeFilter.length <= 2 ? "    " : "   ";
             await sendLaMetricNotification(
-                [{ text: `${routeFilter} | --`, icon: "24030" }],
+                [{ text: `${routeFilter}${noDataSpacing}--`, icon: "24030" }],
                 { priority: "info" }
             );
             res.json({ success: true, message: "No departures found" });
             return;
         }
 
-        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}M`;
+        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
+        const spacing = departure.route.length <= 2 ? "    " : "   ";
 
         // Critical alert with goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
             await sendLaMetricNotification(
                 [{
-                    text: `${departure.route} | ${timeText}`,
+                    text: `${departure.route}${spacing}${timeText}`,
                     icon: "24030",
                     goalData: {
                         start: 0,
@@ -1084,7 +1093,7 @@ app.post("/quick-view/toggle", async (req: Request, res: Response) => {
             );
         } else {
             await sendLaMetricNotification(
-                [{ text: `${departure.route} | ${timeText}`, icon: "24030" }],
+                [{ text: `${departure.route}${spacing}${timeText}`, icon: "24030" }],
                 { priority: "info" }
             );
         }
@@ -1113,22 +1122,24 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         const departure = await getQuickViewDeparture(stopId, routeFilter);
 
         if (!departure) {
+            const noDataSpacing = routeFilter.length <= 2 ? "    " : "   ";
             res.json({
                 frames: [{
-                    text: `${routeFilter} | --`,
+                    text: `${routeFilter}${noDataSpacing}--`,
                     icon: "24030",
                 }],
             });
             return;
         }
 
-        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}M`;
+        const timeText = departure.minutes <= 1 ? "Due" : `${departure.minutes}'`;
+        const spacing = departure.route.length <= 2 ? "    " : "   ";
 
         // Show goal bar at 5 minutes or less
         if (departure.minutes <= 5) {
             res.json({
                 frames: [{
-                    text: `${departure.route} | ${timeText}`,
+                    text: `${departure.route}${spacing}${timeText}`,
                     icon: "24030",
                     goalData: {
                         start: 0,
@@ -1141,7 +1152,7 @@ app.get("/quick-view", async (req: Request, res: Response) => {
         } else {
             res.json({
                 frames: [{
-                    text: `${departure.route} | ${timeText}`,
+                    text: `${departure.route}${spacing}${timeText}`,
                     icon: "24030",
                 }],
             });
