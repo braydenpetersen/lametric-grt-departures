@@ -105,17 +105,6 @@ function extractRouteIds(stops: GRTStop[]): string[] {
     return [...routeIds];
 }
 
-// Trim headsigns - remove "Station" and extra spaces
-function trimHeadsign(headsign: string | null): string {
-    if (!headsign) {
-        return "Unknown";
-    }
-    return headsign
-        .replace(/\s*Station\s*/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
 // Custom animated ION icon (base64 encoded GIF)
 // Custom animated ION icon (base64 encoded GIF - loops infinitely)
 const ION_ICON = "data:image/gif;base64,R0lGODlhCAAIAIEAAAAAAACUzwC0/BX/ACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAMgAAACwAAAAACAAIAAAIKAABDBgAoGCAAAIJAjiIsKBBhAIEPCwYcSKAigsRBojIUONFiRkDBAQAIfkEAQUABQAsAAAAAAgACACBAJTPAAAAALT8Ff8ACCMABxQIUKAAgIICCR4syNDgwIMKBzqMSHHiwoUPCwiQuDBAQAAh+QQBBQAFACwAAAAACAAIAIEAlM8AAAAV/wAAtPwIIAALBChQAADBgQMNElxYUKDBhAIbQpwo8aFChxEhRgwIACH5BAEFAAQALAAAAAAIAAgAgQCUzwAAAAC0/AAAAAgjAAMQIABgYAAAAgsOXEiQwEGHDRNCLCixIkWGDwMIkAhRQEAAIfkEAQUABAAsAAAAAAgACACBAJTPAAAAALT8AAAACCcACRAAIDAAAAEDBSoUSNAggQACGiaEKLFhxIcSEWJ8qJHgQwIIAwIAIfkEAQUABAAsAAAAAAgACACBAJTPAAAAALT8AAAACCgACQAgQCAAAAECCSokIGCgwYIICyYMEDHAxIoOGRJ8SLHgQIkIAwQEACH5BAEFAAQALAAAAAAIAAgAgQAAAACUzwC0/AAAAAgoAAMQIAAggACCAxMSEACAoEAABwE0fBhxIsGKDxcSLHgR4cCGEQkEBAAh+QQBBQAEACwAAAAABwAIAIEAAAAAlM8AtPwAAAAIIwAJEAAQQMBAgQgFACA40CAAAgEaHowIwCFFAhYlPjzokEBAACH5BAEFAAQALAAAAAAGAAgAgQAAAAC0/ACUzwAAAAgeAAkAEBBAIIGDBAIMFFhwIYCGAhgaBJBwYkODFwMCACH5BAEFAAQALAAAAAAIAAgAgQAAAAC0/ACUzwAAAAgiAAEICEAAAIGDCAMYJEAQQEOEBR8yjFgQoUGJCiUmrIgwIAAh+QQBBQAEACwAAAAABwAIAIEAAAAAtPwAlM8AAAAIIAAFBCAAgIBBgwEKEkg4UCHBhggBQDw4McBEhAQPEggIACH5BAEFAAQALAAAAAAIAAgAgQAAAAC0/ACUzwAAAAghAAMQAECgoMEABAkIVDjQoEKBCRdCdBhgIsOCCR021BgQACH5BAEFAAIALAAAAAAIAAgAgQAAAAC0/AAAAAAAAAghAAUAEECwYICBAgIQHIiQ4EGBDhdCNMgwosCGBSdmFBAQACH5BAEFAAIALAAAAAAIAAYAgQAAAAC0/AAAAAAAAAgeAAEIGEhQgEABAQYCCHBwIEOGDhVCJPjwYEKDAQICACH5BAEFAAIALAIAAQAGAAUAgQAAAAC0/AAAAAAAAAgUAAMIEABA4MAABQsOTHgwoUGFAQEAIfkEAQUAAgAsAQABAAcABQCBAAAAALT8AAAAAAAACBYAAwgQAEDgQAEBChY0qNBgwocMDQYEACH5BAEFAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgWAAMIEABAIMGBAQoqNLgQAMKGDBkGBAAh+QQBBQACACwBAAEABwAFAIEAAAAAtPwAAAAAAAAIFwAFAAggQKCAAAMTElQI4CDDggMhBggIACH5BAEFAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgbAAUACCBAoIAAAQYqJCgwYcKDDhUebFhwoICAACH5BAEFAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgbAAEEECAAgIAAAAQqHJgQIcKDDRVCFEiQooCAACH5BAEyAAIALAAAAQAIAAUAgQAAAAC0/AAAAAAAAAgZAAMIEABAQICCBxMSNAjgIEOGDiMObDgxIAAh+QQBMgAFACwAAAAACAAIAIEAAAAAlM8AtPwV/wAIKgALDBhQoGCAAAAGGjwIoEBDAAcLCmgYUSLFAAULXoQoQMDBiBg7LgwQEAAh+QQBBQAFACwAAAAACAAIAIEAlM8AAAAAtPwV/wAIIwAHFAhQoACAggIJHizI0ODAgwoHOoxIceLChQ8LCJC4MEBAACH5BAEFAAUALAAAAAAIAAgAgQCUzwAAABX/AAC0/AggAAsEKFAAAMGBAw0SXFhQoMGEAhtCnCjxoUKHESFGDAgAIfkEAQUABAAsAAAAAAgACACBAJTPAAAAALT8AAAACCMAAxAgAGBgAAACCw5cSJDAQYcNE0IsKLEiRYYPAwiQCFFAQAAh+QQBBQAEACwAAAAACAAIAIEAlM8AAAAAtPwAAAAIJwAJEAAgMAAAAQMFKhRI0CCBAAIaJoQosWHEhxIRYnyokeBDAggDAgAh+QQBBQAEACwAAAAACAAIAIEAlM8AAAAAtPwAAAAIKAAJACBAIAAAAQIJKiQgYKDBgggLJgwQMcDEig4ZEnxIseBAiQgDBAQAIfkEAQUABAAsAAAAAAgACACBAAAAAJTPALT8AAAACCgAAxAgACCAAIIDExIQAICgQAAHATR8GHEiwYoPFxIseBHhwIYRCQQEACH5BAEFAAQALAAAAAAHAAgAgQAAAACUzwC0/AAAAAgjAAkQABBAwECBCAUAIDjQIAACARoejAjAIUUCFiU+POiQQEAAIfkEAQUABAAsAAAAAAYACACBAAAAALT8AJTPAAAACB4ACQAQEEAggYMEAgwUWHAhgIYCGBoEkHBiQ4MXAwIAIfkEAQUABAAsAAAAAAgACACBAAAAALT8AJTPAAAACCIAAQgIQAAAgYMIAxgkQBBAQ4QFHzKMWBChQYkKJSasiDAgACH5BAEFAAQALAAAAAAHAAgAgQAAAAC0/ACUzwAAAAggAAUEIACAgEGDAQoSSDhQIcGGCAFAPDgxwESEBA8SCAgAIfkEAQUABAAsAAAAAAgACACBAAAAALT8AJTPAAAACCEAAxAAQKCgwQAECQhUONCgQoEJF0J0GGAiw4IJHTbUGBAAIfkEAQUAAgAsAAAAAAgACACBAAAAALT8AAAAAAAACCEABQAQQLBggIECAhAciJDgQYEOF0I0yDCiwIYFJ2YUEBAAIfkEAQUAAgAsAAAAAAgABgCBAAAAALT8AAAAAAAACB4AAQgYSFCAQAEBBgIIcHAgQ4YOFUIk+PBgQoMBAgIAIfkEAQUAAgAsAgABAAYABQCBAAAAALT8AAAAAAAACBQAAwgQAEDgwAAFCw5MeDChQYUBAQAh+QQBBQACACwBAAEABwAFAIEAAAAAtPwAAAAAAAAIFgADCBAAQOBAAQEKFjSo0GDChwwNBgQAIfkEAQUAAgAsAAABAAgABQCBAAAAALT8AAAAAAAACBYAAwgQAEAgwYEBCio0uBAAwoYMGQYEACH5BAEFAAIALAEAAQAHAAUAgQAAAAC0/AAAAAAAAAgXAAUACCBAoIAAAxMSVAjgIMOCAyEGCAgAIfkEAQUAAgAsAAABAAgABQCBAAAAALT8AAAAAAAACBsABQAIIECggAABBiokKDBhwoMOFR5sWHCggIAAIfkEAQUAAgAsAAABAAgABQCBAAAAALT8AAAAAAAACBsAAQQQIACAgAAABCocmBAhwoMNFUIUSJCigIAAIfkEATIAAgAsAAABAAgABQCBAAAAALT8AAAAAAAACBkAAwgQAEBAgIIHExI0COAgQ4YOIw5sODEgACH5BAEyAAUALAAAAAAIAAgAgQAAAACUzwC0/BX/AAgqAAsMGFCgYIAAAAYaPAigQEMABwsKaBhRIsUABQtehChAwMGIGDsuDBAQACH5BAEFAAUALAAAAAAIAAgAgQCUzwAAAAC0/BX/AAgjAAcUCFCgAICCAgkeLMjQ4MCDCgc6jEhx4sKFDwsIkLgwQEAAIfkEAQUABQAsAAAAAAgACACBAJTPAAAAFf8AALT8CCAACwQoUAAAwYEDDRJcWFCgwYQCG0KcKPGhQocRIUYMCAAh+QQBBQAEACwAAAAACAAIAIEAlM8AAAAAtPwAAAAIIwADECAAYGAAAAILDlxIkMBBhw0TQiwosSJFhg8DCJAIUUBAACH5BAEFAAQALAAAAAAIAAgAgQCUzwAAAAC0/AAAAAgnAAkQACAwAAABAwUqFEjQIIEAAhomhCixYcSHEhFifKiR4EMCCAMCACH5BAEFAAQALAAAAAAIAAgAgQCUzwAAAAC0/AAAAAgoAAkAIEAgAAABAgkqJCBgoMGCCAsmDBAxwMSKDhkSfEix4ECJCAMEBAAh+QQBBQAEACwAAAAACAAIAIEAAAAAlM8AtPwAAAAIKAADECAAIIAAggMTEhAAgKBAAAcBNHwYcSLBig8XEix4EeHAhhEJBAQAIfkEAQUABAAsAAAAAAcACACBAAAAAJTPALT8AAAACCMACRAAEEDAQIEIBQAgONAgAAIBGh6MCMAhRQIWJT486JBAQAAh+QQBBQAEACwAAAAABgAIAIEAAAAAtPwAlM8AAAAIHgAJABAQQCCBgwQCDBRYcCGAhgIYGgSQcGJDgxcDAgAh+QQBBQAEACwAAAAACAAIAIEAAAAAtPwAlM8AAAAIIgABCAhAAACBgwgDGCRAEEBDhAUfMoxYEKFBiQolJqyIMCAAIfkEAQUABAAsAAAAAAcACACBAAAAALT8AJTPAAAACCAABQQgAICAQYMBChJIOFAhwYYIAUA8ODHARIQEDxIICAAh+QQBBQAEACwAAAAACAAIAIEAAAAAtPwAlM8AAAAIIQADEABAoKDBAAQJCFQ40KBCgQkXQnQYYCLDggkdNtQYEAAh+QQBBQACACwAAAAACAAIAIEAAAAAtPwAAAAAAAAIIQAFABBAsGCAgQICEByIkOBBgQ4XQjTIMKLAhgUnZhQQEAAh+QQBBQACACwAAAAACAAGAIEAAAAAtPwAAAAAAAAIHgABCBhIUIBAAQEGAghwcCBDhg4VQiT48GBCgwECAgAh+QQBBQACACwCAAEABgAFAIEAAAAAtPwAAAAAAAAIFAADCBAAQODAAAULDkx4MKFBhQEBACH5BAEFAAIALAEAAQAHAAUAgQAAAAC0/AAAAAAAAAgWAAMIEABA4EABAQoWNKjQYMKHDA0GBAAh+QQBBQACACwAAAEACAAFAIEAAAAAtPwAAAAAAAAIFgADCBAAQCDBgQEKKjS4EADChgwZBgQAIfkEAQUAAgAsAQABAAcABQCBAAAAALT8AAAAAAAACBcABQAIIECggAADExJUCOAgw4IDIQYICAAh+QQBBQACACwAAAEACAAFAIEAAAAAtPwAAAAAAAAIGwAFAAggQKCAAAEGKiQoMGHCgw4VHmxYcKCAgAAh+QQBBQACACwAAAEACAAFAIEAAAAAtPwAAAAAAAAIGwABBBAgAICAAAAEKhyYECHCgw0VQhRIkKKAgAAh+QQBMgACACwAAAEACAAFAIEAAAAAtPwAAAAAAAAIGQADCBAAQECAggcTEjQI4CBDhg4jDmw4MSAAOw==";
@@ -134,19 +123,17 @@ function getRouteIcon(routeShortName: string): string {
 }
 
 // Transform GRT data to LaMetric format
+// One frame per departure: "ROUTE | TIME", top 3 soonest across all stops
 function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     const frames: LaMetricFrame[] = [];
 
     // Track the earliest future departure (even if beyond 2 hours) for "CLOSED" display
     let nextDepartureTime: Date | null = null;
 
-    // Process each stop separately to get its top 3 routes
-    const allRoutes: { routeName: string; headsign: string; times: number[]; minTime: number }[] = [];
+    // Flatten all departures into individual { route, minutes } items
+    const allDepartures: { route: string; minutes: number }[] = [];
 
     for (const stop of stops) {
-        // Group departures by route + headsign for THIS stop
-        const stopGrouped = new Map<string, { routeName: string; headsign: string; times: number[] }>();
-
         for (const arrival of stop.arrivals) {
             const minutes = getMinutesUntil(arrival.departure);
             const departureDate = new Date(arrival.departure);
@@ -161,73 +148,35 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
             // Skip departures that have already passed or are more than 2 hours away
             if (minutes < 0 || minutes > 120) continue;
 
-            const routeName = arrival.route.shortName;
-            const headsign = trimHeadsign(arrival.trip.headsign);
-            const key = `${routeName}|${headsign}`;
-
-            if (!stopGrouped.has(key)) {
-                stopGrouped.set(key, { routeName, headsign, times: [] });
-            }
-            stopGrouped.get(key)!.times.push(minutes);
+            allDepartures.push({
+                route: arrival.route.shortName,
+                minutes,
+            });
         }
-
-        // Get top 3 routes for this stop
-        const stopRoutes = [...stopGrouped.values()]
-            .map((route) => ({
-                ...route,
-                minTime: Math.min(...route.times),
-            }))
-            .sort((a, b) => a.minTime - b.minTime)
-            .slice(0, 3);
-
-        allRoutes.push(...stopRoutes);
     }
 
-    // Sort all routes by soonest departure time
-    const sortedRoutes = allRoutes.sort((a, b) => a.minTime - b.minTime);
+    // Sort by soonest and take top 3
+    const topDepartures = allDepartures
+        .sort((a, b) => a.minutes - b.minutes)
+        .slice(0, 3);
 
-    // Create frames for each route/headsign group
-    for (const { routeName, headsign, times } of sortedRoutes) {
-        // Sort times and take first 2
-        times.sort((a, b) => a - b);
-        const nextTimes = times.slice(0, 2);
+    // Create one frame per departure
+    for (const { route, minutes } of topDepartures) {
+        const timeText = minutes <= 1 ? "Due" : `${minutes}M`;
+        const icon = getRouteIcon(route);
 
-        // ION gets special treatment: icon + headsign in one frame
-        if (isIONRoute(routeName)) {
-            // Frame 1: Headsign with ION icon
-            frames.push({
-                text: headsign,
-                icon: ION_ICON,
-            });
-        } else {
-            // Frame 1: Route number with bus icon
-            frames.push({
-                text: routeName,
-                icon: getRouteIcon(routeName),
-            });
-
-            // Frame 2: Headsign (destination)
-            frames.push({
-                text: headsign,
-            });
-        }
-
-        // Final frame: Next departure times
-        // Show 100% goal bar on time frame if departure is "Due" (within 1 minute)
-        const isDueSoon = nextTimes[0] <= 1;
-        const timeGoalData = isDueSoon ? {
+        // Show goal bar when departure is ≤5 min away
+        const goalData = minutes <= 5 ? {
             start: 0,
             current: 1,
             end: 1,
             unit: "",
         } : undefined;
 
-        const timeText = nextTimes
-            .map((t) => (t <= 1 ? "Due" : `${t}m`))
-            .join(", ");
         frames.push({
-            text: timeText,
-            goalData: timeGoalData,
+            text: `${route} | ${timeText}`,
+            icon,
+            goalData,
         });
     }
 
@@ -255,15 +204,15 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
 app.get("/", (_req: Request, res: Response) => {
     res.json({
         name: "GRT & GO Transit LaMetric API",
-        version: "1.0.0",
+        version: "2.0.0",
         endpoints: {
-            "/departures": "GRT departures - ?stop=STOP_ID",
+            "/departures": "GRT departures (top 3 soonest, compact) - ?stop=STOP_ID",
             "/stops": "List available GRT stops",
             "/alerts": "GRT alerts - ?stop=STOP_ID (optional)",
             "/go-departures": "GO Transit Union Station departures - ?lines=KI,LW (optional)",
             "/go-stop": "GO Transit stop-specific departures - ?stop=STOP_CODE",
             "/quick-view": "Quick view mode - ?quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
-            "/quick-view/toggle": "Toggle tracking (POST) - ?deviceIp=IP&apiKey=KEY&quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
+            "/quick-view/toggle": "Push notification (POST) - ?quickViewStop=STOP_ID&quickViewRoute=ROUTE_NUM",
             "/health": "Health check",
         },
     });
@@ -1000,7 +949,7 @@ async function getQuickViewDeparture(stopId: string, routeFilter: string): Promi
     return matchingDeparture;
 }
 
-// Send a notification to a LaMetric device
+// Send a notification via LaMetric Cloud Push API
 async function sendLaMetricNotification(
     frames: LaMetricFrame[],
     options?: {
@@ -1008,32 +957,30 @@ async function sendLaMetricNotification(
         sound?: { category: string; id: string; repeat?: number };
     }
 ): Promise<boolean> {
-    const deviceIp = process.env.LAMETRIC_DEVICE_IP;
-    const apiKey = process.env.LAMETRIC_API_KEY;
+    const pushUrl = process.env.LAMETRIC_PUSH_URL;
+    const pushToken = process.env.LAMETRIC_PUSH_TOKEN;
 
-    if (!deviceIp || !apiKey) {
-        console.error("LAMETRIC_DEVICE_IP or LAMETRIC_API_KEY not configured");
+    if (!pushUrl || !pushToken) {
+        console.error("LAMETRIC_PUSH_URL or LAMETRIC_PUSH_TOKEN not configured");
         return false;
     }
 
     try {
-        const auth = Buffer.from(`dev:${apiKey}`).toString("base64");
-
         const payload: Record<string, unknown> = {
-            model: { frames },
+            frames,
         };
 
         if (options?.priority) {
             payload.priority = options.priority;
         }
         if (options?.sound) {
-            payload.model = { ...payload.model as object, sound: options.sound };
+            payload.sound = options.sound;
         }
 
-        const response = await fetch(`http://${deviceIp}:8080/api/v2/device/notifications`, {
+        const response = await fetch(pushUrl, {
             method: "POST",
             headers: {
-                Authorization: `Basic ${auth}`,
+                Authorization: `Bearer ${pushToken}`,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(payload),
