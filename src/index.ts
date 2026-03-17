@@ -105,16 +105,22 @@ interface LaMetricResponse {
     frames: LaMetricFrame[];
 }
 
-// Build padded text for LaMetric display (8 chars max)
-// Uses alternating "| " to trick the display into rendering spaces
-function padForDisplay(left: string, right: string): string {
-    const gap = 8 - left.length - right.length;
-    if (gap <= 0) return `${left}${right}`;
-    let spacing = "";
-    for (let i = 0; i < gap; i++) {
-        spacing += i % 2 === 0 ? "|" : " ";
+// Pixel width of a string on the LaMetric display
+// Digits/letters: 3px, apostrophe/pipe/colon: 1px, plus 1px gap between each character
+function pxWidth(s: string): number {
+    if (s.length === 0) return 0;
+    let w = 0;
+    for (const ch of s) {
+        w += (ch === "'" || ch === "|" || ch === ":" || ch === "." || ch === "!" || ch === " ") ? 1 : 3;
     }
-    return `${left}${spacing}${right}`;
+    return w + (s.length - 1); // 1px inter-character gap
+}
+
+// Build padded text for LaMetric display (27px wide)
+// Invisible "|" chars (1px each) fill the gap between left and right text
+function padForDisplay(left: string, right: string): string {
+    const pipes = Math.max(0, Math.floor((26 - pxWidth(left) - pxWidth(right)) / 2));
+    return `${left}${"|".repeat(pipes)}${right}`;
 }
 
 // Calculate minutes until departure
