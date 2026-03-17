@@ -1,13 +1,72 @@
 import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 import express, { Request, Response } from "express";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { getStopsForLaMetric } from "./stops";
 import { getActiveAlerts, formatAlertsForLaMetric, loadAlertsFromFile } from "./alerts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const GRT_GRAPHQL_URL = "https://grtivr-prod.regionofwaterloo.9802690.ca/vms/graphql";
+
+// Load pre-built GTFS schedule data
+type Schedule = Record<string, Record<string, Record<string, string[]>>>;
+type ServiceDates = Record<string, string>;
+
+const schedule: Schedule = JSON.parse(readFileSync(join(__dirname, "..", "data", "schedule.json"), "utf-8"));
+const serviceDates: ServiceDates = JSON.parse(readFileSync(join(__dirname, "..", "data", "service-dates.json"), "utf-8"));
+
+// Get the next scheduled departure from GTFS static data for a stop
+function getNextScheduledDeparture(stopIds: string[]): { route: string; time: string } | null {
+    const now = new Date();
+    const currentTimeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+
+    // Get today's service type, then try tomorrow if nothing found
+    const today = now.toISOString().slice(0, 10).replace(/-/g, "");
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
+
+    for (const [date, searchFromMidnight] of [[today, false], [tomorrow, true]] as const) {
+        const serviceType = serviceDates[date];
+        if (!serviceType || !schedule[serviceType]) continue;
+
+        const serviceSchedule = schedule[serviceType];
+        let earliest: { route: string; time: string } | null = null;
+
+        for (const stopId of stopIds) {
+            const stopSchedule = serviceSchedule[stopId];
+            if (!stopSchedule) continue;
+
+            for (const [route, times] of Object.entries(stopSchedule)) {
+                for (const time of times) {
+                    // For today: find first departure after current time
+                    // For tomorrow: find first departure of the day
+                    if (!searchFromMidnight && time <= currentTimeStr) continue;
+
+                    if (!earliest || time < earliest.time) {
+                        earliest = { route, time };
+                    }
+                    break; // times are sorted, first match is earliest for this route
+                }
+            }
+        }
+
+        if (earliest) {
+            // Format time as 5:54AM
+            const [h, m] = earliest.time.split(":");
+            const hour = parseInt(h);
+            const ampm = hour >= 12 ? "PM" : "AM";
+            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+            return { route: earliest.route, time: `${hour12}:${m}${ampm}` };
+        }
+    }
+
+    return null;
+}
 
 interface GRTArrival {
     trip: {
@@ -124,11 +183,8 @@ function getRouteIcon(routeShortName: string): string {
 
 // Transform GRT data to LaMetric format
 // One frame per departure: "ROUTE | TIME", top 3 soonest across all stops
-function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
+function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricResponse {
     const frames: LaMetricFrame[] = [];
-
-    // Track the earliest future departure (even if beyond 2 hours) for "CLOSED" display
-    let nextDepartureTime: Date | null = null;
 
     // Flatten all departures into individual { route, minutes } items
     const allDepartures: { route: string; minutes: number }[] = [];
@@ -136,14 +192,6 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
     for (const stop of stops) {
         for (const arrival of stop.arrivals) {
             const minutes = getMinutesUntil(arrival.departure);
-            const departureDate = new Date(arrival.departure);
-
-            // Track next departure for "CLOSED" message
-            if (minutes >= 0) {
-                if (!nextDepartureTime || departureDate < nextDepartureTime) {
-                    nextDepartureTime = departureDate;
-                }
-            }
 
             // Skip departures that have already passed or are more than 2 hours away
             if (minutes < 0 || minutes > 120) continue;
@@ -180,19 +228,18 @@ function transformToLaMetric(stops: GRTStop[]): LaMetricResponse {
         });
     }
 
-    // If no departures found within 2 hours, show CLOSED with next departure time
+    // No real-time departures — fall back to GTFS static schedule
     if (frames.length === 0) {
-        frames.push({
-            text: "CLOSED",
-            icon: "i270",
-        });
-
-        // Show when the next departure is (if available)
-        if (nextDepartureTime) {
-            const hours = nextDepartureTime.getHours().toString().padStart(2, "0");
-            const mins = nextDepartureTime.getMinutes().toString().padStart(2, "0");
+        const next = getNextScheduledDeparture(stopIds);
+        if (next) {
             frames.push({
-                text: `→ ${hours}:${mins}`,
+                text: `${next.route} | ${next.time} NEXT`,
+                icon: getRouteIcon(next.route),
+            });
+        } else {
+            frames.push({
+                text: "NO SVC",
+                icon: "i270",
             });
         }
     }
@@ -249,7 +296,7 @@ app.get("/departures", async (req: Request, res: Response) => {
         const alertFrames = formatAlertsForLaMetric(alerts);
 
         // Build response: departures first, then alerts
-        const laMetricData = transformToLaMetric(stops);
+        const laMetricData = transformToLaMetric(stops, stopIds);
 
         // Append alerts if any
         if (alertFrames.length > 0) {

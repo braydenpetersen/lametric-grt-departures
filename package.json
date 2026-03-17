@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "build-schedule": "tsx scripts/build-gtfs-schedule.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

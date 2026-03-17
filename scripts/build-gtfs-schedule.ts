@@ -12,10 +12,12 @@
  */
 
 import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
-const DATA_DIR = join(import.meta.dirname, "..", "data", "GTFS");
-const OUT_DIR = join(import.meta.dirname, "..", "data");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = join(__dirname, "..", "data", "GTFS");
+const OUT_DIR = join(__dirname, "..", "data");
 
 function parseCsv(filename: string): Record<string, string>[] {
     const content = readFileSync(join(DATA_DIR, filename), "utf-8");
