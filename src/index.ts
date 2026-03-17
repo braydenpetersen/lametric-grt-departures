@@ -1265,9 +1265,10 @@ function getTrackingFrame(route: string, bracket: string): LaMetricFrame {
 
     switch (bracket) {
         case "tracking":
-            timeText = "SOON";
-            goalData = departureGoalData(route, 15);
-            break;
+            return {
+                text: `Tracking route ${route} for stop ${activeTracking?.stopId}`,
+                icon: TRACK_ICON_ACTIVE,
+            };
         case "10m":
             timeText = "10'";
             goalData = departureGoalData(route, 10);
