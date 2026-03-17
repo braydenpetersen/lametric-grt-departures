@@ -1076,11 +1076,10 @@ async function sendLaMetricNotification(
     }
 }
 
-// Quick view toggle endpoint - triggered by button press on App 1
-// LaMetric sends GET for action buttons. Also handles POST for curl/testing.
-// First press: starts tracking → App 2 begins showing countdown brackets
-// Second press: stops tracking → App 2 goes back to IDLE
-app.all("/quick-view/toggle", async (req: Request, res: Response) => {
+// Quick view toggle endpoint - triggered by button press on App 1 (GET) or phone shortcut
+// First hit: starts tracking → App 2 begins showing countdown brackets
+// Second hit: stops tracking → App 2 goes back to IDLE
+app.get("/quick-view/toggle", async (req: Request, res: Response) => {
     try {
         // Toggle off: if already tracking, cancel
         if (activeTracking) {
@@ -1420,6 +1419,22 @@ app.post("/track/stop", (_req: Request, res: Response) => {
     }
 
     res.json({ success: true, action: "stopped" });
+});
+
+// Tracking status — for iPhone Shortcuts
+app.get("/track/status", (_req: Request, res: Response) => {
+    if (activeTracking) {
+        const minutes = getMinutesUntil(activeTracking.targetDepartureTime);
+        res.json({
+            active: true,
+            route: activeTracking.route,
+            stopId: activeTracking.stopId,
+            minutes,
+            bracket: activeTracking.lastBracket,
+        });
+    } else {
+        res.json({ active: false });
+    }
 });
 
 // Health check endpoint
