@@ -23,12 +23,15 @@ const serviceDates: ServiceDates = JSON.parse(readFileSync(join(__dirname, "..",
 
 // Get the next scheduled departure from GTFS static data for a stop
 function getNextScheduledDeparture(stopIds: string[]): { route: string; time: string } | null {
+    // GTFS schedule times are in Eastern time — use Eastern time for comparison
     const now = new Date();
-    const currentTimeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+    const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/Toronto" }));
+    const currentTimeStr = `${eastern.getHours().toString().padStart(2, "0")}:${eastern.getMinutes().toString().padStart(2, "0")}`;
 
-    // Get today's service type, then try tomorrow if nothing found
-    const today = now.toISOString().slice(0, 10).replace(/-/g, "");
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
+    // Get today's service type in Eastern time, then try tomorrow if nothing found
+    const today = eastern.toISOString().slice(0, 10).replace(/-/g, "");
+    const tomorrowDate = new Date(eastern.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10).replace(/-/g, "");
 
     for (const [date, searchFromMidnight] of [[today, false], [tomorrow, true]] as const) {
         const serviceType = serviceDates[date];
@@ -264,7 +267,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         if (next) {
             frames.push({
                 text: padForDisplay(next.route, next.time),
-                icon: getRouteIcon(next.route),
+                icon: "i24274", // orange — scheduled (not live)
             });
         } else {
             frames.push({
