@@ -218,8 +218,8 @@ function getRouteIcon(routeShortName: string): string {
 function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricResponse {
     const frames: LaMetricFrame[] = [];
 
-    // Flatten all departures into individual { route, minutes } items
-    const allDepartures: { route: string; minutes: number }[] = [];
+    // Flatten all departures into individual { route, minutes, departureTime } items
+    const allDepartures: { route: string; minutes: number; departureTime: string }[] = [];
 
     for (const stop of stops) {
         for (const arrival of stop.arrivals) {
@@ -231,6 +231,7 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
             allDepartures.push({
                 route: arrival.route.shortName,
                 minutes,
+                departureTime: arrival.departure,
             });
         }
     }
@@ -246,19 +247,34 @@ function transformToLaMetric(stops: GRTStop[], stopIds: string[]): LaMetricRespo
         })
         .slice(0, 3);
 
-    // Create one frame per departure
-    for (const { route, minutes } of topDepartures) {
-        const timeText = minutes <= 1 ? "Due" : `${minutes}'`;
+    // Create frames per departure
+    // ≤60 min: show countdown (e.g. "45'"), >60 min: show clock time (e.g. "5:54")
+    // First departure gets a bonus frame with clock time if it showed countdown
+    for (let i = 0; i < topDepartures.length; i++) {
+        const { route, minutes, departureTime } = topDepartures[i];
         const icon = getRouteIcon(route);
-
-        // Show goal bar highlighting route number when 3–10 min away
         const goalData = departureGoalData(route, minutes);
 
-        frames.push({
-            text: padForDisplay(route, timeText),
-            icon,
-            goalData,
-        });
+        // Format departure as 12h clock time in Eastern
+        const dep = new Date(departureTime);
+        const eastern = new Date(dep.toLocaleString("en-US", { timeZone: "America/Toronto" }));
+        const h = eastern.getHours();
+        const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        const clockTime = `${hour12}:${eastern.getMinutes().toString().padStart(2, "0")}`;
+
+        if (minutes <= 1) {
+            frames.push({ text: padForDisplay(route, "Due"), icon, goalData });
+            if (i === 0) {
+                frames.push({ text: padForDisplay(route, clockTime), icon, goalData });
+            }
+        } else if (minutes <= 60) {
+            frames.push({ text: padForDisplay(route, `${minutes}'`), icon, goalData });
+            if (i === 0) {
+                frames.push({ text: padForDisplay(route, clockTime), icon, goalData });
+            }
+        } else {
+            frames.push({ text: padForDisplay(route, clockTime), icon, goalData });
+        }
     }
 
     // No real-time departures — fall back to GTFS static schedule
