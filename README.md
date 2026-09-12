@@ -32,22 +32,22 @@ The same Worker name is updated on later deployments. Do not create replacement 
 ## LaMetric settings
 
 Replace only the old Railway origin with the deployed `https://lametric-grt-departures.lametric-grt-departures.workers.dev` origin.
-Preserve the device's existing stop and route parameters, polling intervals, icons and notification settings.
+Published GRT departures v7 and Live Track v3 use stop `2674` (westbound University Ave. / Sunview), verified in Google Maps and the official GRT feed. Tracking uses `route=all` to select the next bus across routes 12, 19 and 29. The action button starts/stops that selected trip. Existing installed apps may retain their previous option values; set stop to `2674` and tracking route to `all` in the LaMetric mobile app. Polling intervals remain 1 minute and 15 seconds respectively.
 
-| Use | Endpoint |
-| --- | --- |
-| Departures poll | `GET /departures?stop=<id>` (comma-separated IDs supported) |
-| Stop dropdown | `GET /stops` |
-| Quick view | `GET /quick-view?quickViewStop=<id>&quickViewRoute=<route>` |
-| Main app button | `GET /quick-view/toggle?quickViewStop=<id>&quickViewRoute=<route>` |
-| Tracking app poll | `GET /track?stop=<id>&route=<route>` |
-| Start tracking | `POST /track/start?stop=<id>&route=<route>` |
-| Cancel tracking | `POST /track/stop` |
-| Tracking status | `GET /track/status` |
-| Alerts | `GET /alerts?stop=<id>` |
-| GO Union departures | `GET /go-departures?lines=KI,LW` |
-| GO stop departures | `GET /go-stop?stop=<code>` |
-| Health | `GET /health` |
+| Use                 | Endpoint                                                           |
+| ------------------- | ------------------------------------------------------------------ |
+| Departures poll     | `GET /departures?stop=<id>` (comma-separated IDs supported)        |
+| Stop dropdown       | `GET /stops`                                                       |
+| Quick view          | `GET /quick-view?quickViewStop=<id>&quickViewRoute=<route>`        |
+| Main app button     | `GET /quick-view/toggle?quickViewStop=<id>&quickViewRoute=<route>` |
+| Tracking app poll   | `GET /track?stop=<id>&route=<route>`                               |
+| Start tracking      | `POST /track/start?stop=<id>&route=<route>`                        |
+| Cancel tracking     | `POST /track/stop`                                                 |
+| Tracking status     | `GET /track/status`                                                |
+| Alerts              | `GET /alerts?stop=<id>`                                            |
+| GO Union departures | `GET /go-departures?lines=KI,LW`                                   |
+| GO stop departures  | `GET /go-stop?stop=<code>`                                         |
+| Health              | `GET /health`                                                      |
 
 This retains the original app's single personal-clock tracking session. It is not a multi-user service.
 Tracking expires on the next poll after departure; no continuously running timer or paid scheduler is needed.
@@ -76,3 +76,5 @@ The GRT alerts server may have TLS problems; optional alerts never prevent bus u
 Keep the Railway app intact until the clock is verified against Cloudflare.
 To roll back Cloudflare code, use the previous Worker version after the same account checks.
 The old Railway code remains in Git history at `9f25080`.
+
+With `route=all`, selection considers every route; an active session still follows the chosen trip through delays until it departs or is stopped. Both published action URLs explicitly use `quickViewStop=2674&quickViewRoute=all`.

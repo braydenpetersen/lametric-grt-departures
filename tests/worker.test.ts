@@ -62,6 +62,16 @@ describe("Worker and durable tracking", () => {
     arrivals = [bus(2, "another-trip"), bus(9)];
     expect((await call("/track/status")).body.minutes).toBe(9);
   });
+  it("selects the next bus across routes and preserves all-route preference", async () => {
+    arrivals = [bus(8, "a", "19"), bus(3, "b", "29"), bus(6, "c", "12")];
+    expect(
+      (await call("/track/start?stop=2674&route=all", "POST")).body.route,
+    ).toBe("29");
+    arrivals = [bus(1, "a", "19"), bus(4, "b", "29")];
+    expect((await call("/track/status")).body.route).toBe("29");
+    await call("/track/stop", "POST");
+    expect((await call("/quick-view/toggle")).body.route).toBe("19");
+  });
   it("keeps the selected estimate if the trip temporarily disappears", async () => {
     await call("/track/start?stop=1000&route=7", "POST");
     arrivals = [bus(30, "another-trip")];

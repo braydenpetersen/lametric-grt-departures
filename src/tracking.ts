@@ -53,7 +53,7 @@ export function soonest(stops: GRTStop[], route: string) {
     .flatMap((s) => s.arrivals)
     .filter(
       (a) =>
-        a.route.shortName === route &&
+        (route === "all" || a.route.shortName === route) &&
         Date.parse(a.departure) >= Date.now() &&
         getMinutesUntil(a.departure) <= 120,
     )
@@ -113,7 +113,7 @@ export class TrackingSession {
       state.config = { stopId, route };
       state.active = {
         stopId,
-        route,
+        route: departure.route.shortName,
         target: departure.departure,
         tripId: departure.trip.id,
         startedAt: Date.now(),
@@ -122,7 +122,7 @@ export class TrackingSession {
       return reply({
         success: true,
         action: toggle ? "tracking" : "started",
-        route,
+        route: departure.route.shortName,
         stopId,
         minutes,
         minutesUntilDeparture: minutes,
