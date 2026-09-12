@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lametric-grt-departures",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "TRACKING", "class_name": "DepartureTracker" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DepartureTracker"] }],
+}

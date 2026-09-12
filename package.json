@@ -1,26 +1,29 @@
 {
   "name": "lametric-grt-departures",
-  "version": "1.0.0",
-  "main": "index.js",
+  "version": "3.0.0",
+  "main": "src/worker.ts",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "build-schedule": "tsx scripts/build-gtfs-schedule.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir work/bundle",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "refresh-schedule": "python3 scripts/refresh-schedule.py"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
     "gtfs-realtime-bindings": "^1.1.1",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.0.3"
-  }
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260905.1",
+    "@types/node": "^25.0.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.129.0"
+  },
+  "type": "module"
 }
