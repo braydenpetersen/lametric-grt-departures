@@ -31,7 +31,7 @@ The same Worker name is updated on later deployments. Do not create replacement 
 
 ## LaMetric settings
 
-Replace only the old Railway origin with the deployed `https://lametric-grt-departures.<personal-subdomain>.workers.dev` origin.
+Replace only the old Railway origin with the deployed `https://lametric-grt-departures.lametric-grt-departures.workers.dev` origin.
 Preserve the device's existing stop and route parameters, polling intervals, icons and notification settings.
 
 | Use | Endpoint |

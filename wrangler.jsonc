@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lametric-grt-departures",
+  "account_id": "66030ee3c9331d0cfa83d4c9a83edb03",
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
